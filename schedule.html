@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>排班系統</title>
+  <link rel="stylesheet" href="schedule.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="app-header">
+  <h1>排班系統</h1>
+  <div class="hbtns">
+    <button onclick="openEmpModal()">👥 管理員工</button>
+    <button onclick="window.print()">🖨️ 列印</button>
+  </div>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <div class="month-nav">
+    <button onclick="chMonth(-1)">‹</button>
+    <span class="month-label" id="monthLabel"></span>
+    <button onclick="chMonth(1)">›</button>
+  </div>
+  <div class="tbr">
+    <button class="tbtn" onclick="goToday()">本月</button>
+    <button class="tbtn auto" onclick="autoSchedule()">⚡ 自動排班</button>
+    <button class="tbtn prim" onclick="clearMonthConfirm()">清空本月</button>
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div class="legend" id="legend"></div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="sch-wrap">
+    <table class="sch-table" id="schTable"></table>
+  </div>
+
+  <div class="bot">
+    <!-- Notes -->
+    <div class="panel">
+      <div class="ptitle">📋 本月注意事項</div>
+      <ul class="nl" id="notesList"></ul>
+      <div class="note-row">
+        <input id="noteInput" type="text" placeholder="新增注意事項..." onkeydown="if(event.key==='Enter')addNote()">
+        <select id="noteColor">
+          <option value="#333333">⚫ 黑色</option>
+          <option value="#6a1b9a">🟣 紫色</option>
+          <option value="#e65100">🟠 橙色</option>
+          <option value="#1565c0">🔵 藍色</option>
+        </select>
+        <button onclick="addNote()">新增</button>
+      </div>
+    </div>
+    <!-- Stats -->
+    <div class="panel">
+      <div class="ptitle">📊 本月出勤統計</div>
+      <div id="statsContent"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SHIFT MODAL -->
+<div class="ov" id="shiftModal">
+  <div class="modal">
+    <div class="mhd">
+      <h3 id="shiftModalTitle">選擇班別</h3>
+      <button class="mclose" onclick="closeShiftModal()">✕</button>
+    </div>
+    <div class="spicker" id="shiftPicker"></div>
+    <div class="mac">
+      <button class="btn btn-s" onclick="closeShiftModal()">取消</button>
+      <button class="btn btn-p" onclick="saveShift()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- EMPLOYEE MODAL -->
+<div class="ov" id="empModal">
+  <div class="modal">
+    <div class="mhd">
+      <h3>管理員工</h3>
+      <button class="mclose" onclick="closeEmpModal()">✕</button>
+    </div>
+    <ul class="empl" id="empList"></ul>
+    <div class="eadd">
+      <input id="newEmpInput" type="text" placeholder="新增員工姓名..." onkeydown="if(event.key==='Enter')addEmployee()">
+      <button class="btn btn-p" onclick="addEmployee()">新增</button>
+    </div>
+  </div>
+</div>
+
+<script src="schedule.js"></script>
+</body>
+</html>
