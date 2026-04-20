@@ -161,17 +161,19 @@ function renderLegend(){
 }
 
 function extractNoteDays(notes){
-  // Returns {day: color} for dates found in note text matching current month
   const map={};
   const maxD=daysIn(cy,cm);
   notes.forEach(n=>{
     const t=n.text;
     // "X月Y日" or "X月Y號" or "X/Y"
-    for(const m of t.matchAll(/(\d{1,2})[月\/](\d{1,2})[日號]?/g)){
+    const re1=/(\d{1,2})[月\/](\d{1,2})[日號]?/g;
+    let m;
+    while((m=re1.exec(t))!==null){
       if(parseInt(m[1])===cm){ const d=parseInt(m[2]); if(d>=1&&d<=maxD) map[d]=n.color; }
     }
-    // standalone "Y日" or "Y號" (without month prefix)
-    for(const m of t.matchAll(/(?<![\/\d])(\d{1,2})[日號]/g)){
+    // standalone "Y日" or "Y號"，排除前方是 / 或數字的情況（不用 lookbehind）
+    const re2=/(?:^|[^\/\d])(\d{1,2})[日號]/g;
+    while((m=re2.exec(t))!==null){
       const d=parseInt(m[1]); if(d>=1&&d<=maxD) map[d]=n.color;
     }
   });
