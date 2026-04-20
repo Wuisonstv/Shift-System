@@ -13,6 +13,7 @@
   <h1>排班系統</h1>
   <div class="hbtns">
     <button onclick="openEmpModal()">👥 管理員工</button>
+    <button onclick="openShiftTypeModal()">🎨 管理班別</button>
     <button onclick="window.print()">🖨️ 列印</button>
   </div>
 </div>
@@ -90,6 +91,32 @@
     <div class="eadd">
       <input id="newEmpInput" type="text" placeholder="新增員工姓名..." onkeydown="if(event.key==='Enter')addEmployee()">
       <button class="btn btn-p" onclick="addEmployee()">新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHIFT TYPE MODAL -->
+<div class="ov" id="shiftTypeModal">
+  <div class="modal">
+    <div class="mhd">
+      <h3>管理班別</h3>
+      <button class="mclose" onclick="closeShiftTypeModal()">✕</button>
+    </div>
+    <div class="stm-section">
+      <div class="stm-title">內建班別</div>
+      <ul class="stm-list" id="builtinShiftList"></ul>
+    </div>
+    <div class="stm-section">
+      <div class="stm-title">自訂班別</div>
+      <ul class="stm-list" id="customShiftList"></ul>
+      <div class="stm-add">
+        <input id="csCode" type="text" maxlength="4" placeholder="代碼(最多4字)">
+        <input id="csLabel" type="text" maxlength="10" placeholder="名稱">
+        <button class="btn btn-p" onclick="addCustomShift()">新增</button>
+      </div>
+    </div>
+    <div class="mac">
+      <button class="btn btn-s" onclick="closeShiftTypeModal()">關閉</button>
     </div>
   </div>
 </div>

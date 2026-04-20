@@ -11,7 +11,11 @@ const SHIFTS = [
   { code:'21-2', label:'PT', bg:'#c5cae9', fg:'#1a237e' },
   { code:'',     label:'清空', bg:'#f5f5f5', fg:'#9e9e9e' },
 ];
-const SMAP = Object.fromEntries(SHIFTS.map(s=>[s.code,s]));
+let customShifts = [];
+let hiddenBuiltins = new Set();
+function getShifts(){ return [...SHIFTS.slice(0,-1).filter(s=>!hiddenBuiltins.has(s.code)), ...customShifts, SHIFTS[SHIFTS.length-1]]; }
+let SMAP = {};
+function updateSMAP(){ SMAP = Object.fromEntries(getShifts().map(s=>[s.code,s])); }
 const WDS = ['日','一','二','三','四','五','六'];
 
 // ══════════════════════════════════════════
@@ -38,7 +42,7 @@ const DEF_SKILLS = {
   '子芯':   ['21-2'],
 };
 let empSkills = {};
-const SKILL_OPTS = SHIFTS.filter(s=>s.code&&s.code!=='休'); // 可選技能班別
+function getSkillOpts(){ return getShifts().filter(s=>s.code&&s.code!=='休'); } // 可選技能班別
 const EXEMPT_EMPS = new Set(['Eric','Teen','Sue']); // 不受8天限制
 const REST_PER_MONTH = 8;
 
@@ -50,7 +54,6 @@ let data  = {};
 let emps  = [];
 let editCell = null, selShift = null;
 let pubHols = [];      // [{date, localName}] for current month
-let holCache = {};     // year -> raw API array
 
 // ══════════════════════════════════════════
 //  HELPERS
@@ -66,7 +69,7 @@ function ensureMonth(y,m){
   if(!data[k]) data[k]={schedule:{},notes:[],fixedDates:{}};
   emps.forEach(e=>{ if(!data[k].schedule[e]) data[k].schedule[e]={}; });
 }
-function save(){ localStorage.setItem('tls_data',JSON.stringify(data)); localStorage.setItem('tls_emps',JSON.stringify(emps)); localStorage.setItem('tls_skills',JSON.stringify(empSkills)); }
+function save(){ localStorage.setItem('tls_data',JSON.stringify(data)); localStorage.setItem('tls_emps',JSON.stringify(emps)); localStorage.setItem('tls_skills',JSON.stringify(empSkills)); localStorage.setItem('tls_custom_shifts',JSON.stringify(customShifts)); localStorage.setItem('tls_hidden_builtins',JSON.stringify([...hiddenBuiltins])); }
 function hexAlpha(hex,a){ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
 
 // ══════════════════════════════════════════
@@ -111,29 +114,21 @@ const TW_HOLIDAYS = {
   ],
 };
 
-function fetchHolidays(year){
-  if(holCache[year]!==undefined) return holCache[year];
-  holCache[year] = TW_HOLIDAYS[year] || [];
-  return holCache[year];
-}
 function loadPubHols(){
-  const all = fetchHolidays(cy);
-  pubHols = all.filter(h => h.date.startsWith(`${cy}-${pad2(cm)}`));
-  const k = mkey(); ensureMonth(cy,cm);
-  data[k].apiHols = pubHols.map(h=>({date:h.date, localName:h.localName}));
-  save();
-  renderNotes();
-  renderTable();
+  pubHols = (TW_HOLIDAYS[cy]||[]).filter(h=>h.date.startsWith(`${cy}-${pad2(cm)}`));
 }
 
 // ══════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════
 function init(){
-  const sd=localStorage.getItem('tls_data'), se=localStorage.getItem('tls_emps'), ss=localStorage.getItem('tls_skills');
+  const sd=localStorage.getItem('tls_data'), se=localStorage.getItem('tls_emps'), ss=localStorage.getItem('tls_skills'), sc=localStorage.getItem('tls_custom_shifts'), sh=localStorage.getItem('tls_hidden_builtins');
   if(sd) try{ data=JSON.parse(sd); }catch(e){}
   if(se) try{ emps=JSON.parse(se); }catch(e){}
   if(ss) try{ empSkills=JSON.parse(ss); }catch(e){}
+  if(sc) try{ customShifts=JSON.parse(sc); }catch(e){}
+  if(sh) try{ hiddenBuiltins=new Set(JSON.parse(sh)); }catch(e){}
+  updateSMAP();
   if(!emps.length) emps=[...DEF_EMPS];
   // 預設技能補齊（未曾設定過的員工）
   emps.forEach(e=>{ if(!empSkills[e]) empSkills[e]=DEF_SKILLS[e]||[]; });
@@ -160,7 +155,7 @@ function renderLabel(){ document.getElementById('monthLabel').textContent=`${cy}
 
 function renderLegend(){
   document.getElementById('legend').innerHTML=
-    SHIFTS.filter(s=>s.code).map(s=>
+    getShifts().filter(s=>s.code).map(s=>
       `<div class="leg-item"><div class="leg-clr" style="background:${s.bg};color:${s.fg}">${s.code.substring(0,2)}</div><span>${s.label}</span></div>`
     ).join('');
 }
@@ -257,7 +252,7 @@ function renderNotes(){
 }
 
 function renderStats(){
-  const k=mkey(); const md=data[k]||{}; const codes=SHIFTS.filter(s=>s.code).map(s=>s.code);
+  const k=mkey(); const md=data[k]||{}; const codes=getShifts().filter(s=>s.code).map(s=>s.code);
   const st={};
   const days2=daysIn(cy,cm);
   emps.forEach(e=>{
@@ -285,7 +280,6 @@ function renderStats(){
 // ══════════════════════════════════════════
 function saveFixedDate(key,val){
   const k=mkey(); ensureMonth(cy,cm);
-  if(!data[k].fixedDates) data[k].fixedDates={};
   const d=parseInt(val);
   data[k].fixedDates[key]=(d>=1&&d<=daysIn(cy,cm))?d:'';
   save(); renderTable();
@@ -294,7 +288,7 @@ function addNote(){
   const inp=document.getElementById('noteInput'); const text=inp.value.trim(); if(!text) return;
   const k=mkey(); ensureMonth(cy,cm);
   data[k].notes.push({text,color:document.getElementById('noteColor').value});
-  inp.value=''; save(); renderNotes(); renderTable();
+  inp.value=''; clearDraft('noteInput'); save(); renderNotes(); renderTable();
 }
 function delNote(i){ const k=mkey(); data[k].notes.splice(i,1); save(); renderNotes(); renderTable(); }
 
@@ -311,8 +305,8 @@ function openShiftModal(e,dstr){
 }
 function renderPicker(){
   const skills=new Set(empSkills[editCell?.e]||[]);
-  // 固定可選：休假、清空；其餘依員工技能過濾
-  const allowed=SHIFTS.filter(s=>!s.code||s.code==='休'||skills.has(s.code));
+  // 固定可選：休假、清空；其餘依員工技能過濾（含自訂班別）
+  const allowed=getShifts().filter(s=>!s.code||s.code==='休'||skills.has(s.code));
   document.getElementById('shiftPicker').innerHTML=
     allowed.map(s=>`<div class="sopt${selShift===s.code?' sel':''}" style="background:${s.bg};color:${s.fg};border-color:${selShift===s.code?s.fg:'transparent'}" onclick="pickShift('${s.code}')">${s.code||'清空'}</div>`
   ).join('');
@@ -325,7 +319,10 @@ function saveShift(){
   data[k].schedule[e][dstr]=selShift;
   save(); renderTable(); renderStats(); closeShiftModal();
 }
-function closeShiftModal(){ document.getElementById('shiftModal').classList.remove('open'); editCell=null; selShift=null; }
+function closeShiftModal(){
+  document.getElementById('shiftModal').classList.remove('open');
+  editCell=null; selShift=null;
+}
 
 // ══════════════════════════════════════════
 //  EMPLOYEE MODAL
@@ -335,7 +332,7 @@ function renderEmpList(){
   document.getElementById('empList').innerHTML=
     emps.map((e,i)=>{
       const sk=empSkills[e]||[];
-      const badges=SKILL_OPTS.map(o=>
+      const badges=getSkillOpts().map(o=>
         `<span class="sk-badge${sk.includes(o.code)?' on':''}" style="background:${o.bg};color:${o.fg}" onclick="toggleEmpSkill(${i},'${o.code}')">${o.code||o.label}</span>`
       ).join('');
       return `<li>
@@ -360,7 +357,7 @@ function toggleEmpSkill(i,code){
 function addEmployee(){
   const inp=document.getElementById('newEmpInput'); const n=inp.value.trim();
   if(!n||emps.includes(n)) return;
-  emps.push(n); inp.value=''; ensureMonth(cy,cm); save(); renderEmpList(); renderTable(); renderStats();
+  emps.push(n); inp.value=''; clearDraft('newEmpInput'); ensureMonth(cy,cm); save(); renderEmpList(); renderTable(); renderStats();
 }
 function removeEmp(i){
   if(!confirm(`確定刪除員工「${emps[i]}」？`)) return;
@@ -389,8 +386,8 @@ function goToday(){
 }
 function clearMonthConfirm(){
   if(!confirm(`確定清空 ${cy} 年 ${cm} 月 所有班表？`)) return;
-  const k=mkey(); const kept={apiHols:data[k]?.apiHols||[]};
-  data[k]={schedule:{},notes:[],fixedDates:{},apiHols:kept.apiHols};
+  const k=mkey();
+  data[k]={schedule:{},notes:[],fixedDates:{}};
   ensureMonth(cy,cm); save(); renderAll();
 }
 // 驗證當天工作人員能否符合最低人力需求
@@ -544,10 +541,109 @@ function autoSchedule(){
 }
 
 // ══════════════════════════════════════════
+//  SHIFT TYPE MODAL
+// ══════════════════════════════════════════
+function openShiftTypeModal(){
+  renderBuiltinShiftList();
+  renderCustomShiftList();
+  document.getElementById('shiftTypeModal').classList.add('open');
+}
+function closeShiftTypeModal(){ document.getElementById('shiftTypeModal').classList.remove('open'); }
+
+function renderBuiltinShiftList(){
+  document.getElementById('builtinShiftList').innerHTML =
+    SHIFTS.filter(s=>s.code).map(s=>{
+      const hidden=hiddenBuiltins.has(s.code);
+      return `<li class="stm-item${hidden?' stm-hidden':''}">
+        <span class="stm-badge" style="background:${s.bg};color:${s.fg}">${s.code}</span>
+        <span class="stm-lbl">${s.label}</span>
+        ${hidden
+          ? `<button class="ebtn" onclick="restoreBuiltin('${s.code}')">還原</button>`
+          : `<button class="ebtn del" onclick="hideBuiltin('${s.code}')">刪除</button>`}
+      </li>`;
+    }).join('');
+}
+function hideBuiltin(code){
+  hiddenBuiltins.add(code);
+  updateSMAP(); save();
+  renderBuiltinShiftList(); renderLegend(); renderTable(); renderStats();
+}
+function restoreBuiltin(code){
+  hiddenBuiltins.delete(code);
+  updateSMAP(); save();
+  renderBuiltinShiftList(); renderLegend(); renderTable(); renderStats();
+}
+function renderCustomShiftList(){
+  const el=document.getElementById('customShiftList');
+  if(!customShifts.length){
+    el.innerHTML='<li style="color:#aaa;font-size:.82rem;padding:4px 0">尚無自訂班別</li>';
+    return;
+  }
+  el.innerHTML=customShifts.map((s,i)=>
+    `<li class="stm-item">
+      <span class="stm-badge" style="background:${s.bg};color:${s.fg}">${s.code}</span>
+      <span class="stm-lbl">${s.label}</span>
+      <button class="ebtn del" onclick="removeCustomShift(${i})">刪除</button>
+    </li>`
+  ).join('');
+}
+function randomShiftColor(){
+  // pick a hue not too close to existing shifts, step by 10°
+  const usedHues = getShifts().filter(s=>s.bg&&s.bg.startsWith('hsl')).map(s=>parseInt(s.bg.match(/\d+/)[0]));
+  const candidates = Array.from({length:36},(_,i)=>i*10).filter(h=>usedHues.every(u=>Math.min(Math.abs(h-u),360-Math.abs(h-u))>=20));
+  const hue = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : Math.floor(Math.random()*36)*10;
+  return { bg:`hsl(${hue},62%,90%)`, fg:`hsl(${hue},68%,24%)` };
+}
+function addCustomShift(){
+  const code=document.getElementById('csCode').value.trim();
+  const label=document.getElementById('csLabel').value.trim();
+  if(!code||!label){ alert('請填寫代碼與名稱'); return; }
+  if(getShifts().some(s=>s.code===code)){ alert(`班別代碼「${code}」已存在`); return; }
+  const {bg,fg}=randomShiftColor();
+  customShifts.push({code,label,bg,fg});
+  updateSMAP();
+  save();
+  renderCustomShiftList();
+  renderLegend();
+  renderStats();
+  document.getElementById('csCode').value=''; clearDraft('csCode');
+  document.getElementById('csLabel').value=''; clearDraft('csLabel');
+}
+function removeCustomShift(i){
+  if(!confirm(`確定刪除自訂班別「${customShifts[i].label}」？已排入的班表代碼將保留但不顯示顏色。`)) return;
+  customShifts.splice(i,1);
+  updateSMAP();
+  save();
+  renderCustomShiftList();
+  renderLegend();
+  renderTable();
+  renderStats();
+}
+
+// ══════════════════════════════════════════
 //  CLOSE ON OUTSIDE CLICK / ESC
 // ══════════════════════════════════════════
 document.getElementById('shiftModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftModal(); });
 document.getElementById('empModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeEmpModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); } });
+document.getElementById('shiftTypeModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftTypeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); } });
+
+// ══════════════════════════════════════════
+//  DRAFT & AUTO-SAVE
+// ══════════════════════════════════════════
+const DRAFT_IDS = ['noteInput','newEmpInput','csCode','csLabel'];
+function clearDraft(id){ localStorage.removeItem('tls_draft_'+id); }
+function initDrafts(){
+  DRAFT_IDS.forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    const saved=localStorage.getItem('tls_draft_'+id);
+    if(saved) el.value=saved;
+    el.addEventListener('input',()=>localStorage.setItem('tls_draft_'+id,el.value));
+  });
+}
+// 切換分頁或關閉視窗前強制存檔
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) save(); });
+window.addEventListener('beforeunload',()=> save());
 
 init();
+initDrafts();

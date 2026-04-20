@@ -125,6 +125,20 @@ tr:nth-child(even) .td-name { background: var(--primary-light); }
 .eadd { display: flex; gap: 7px; }
 .eadd input { flex: 1; padding: 6px 9px; border: 1px solid var(--border); border-radius: 4px; font-size: .88rem; font-family: inherit; }
 
+/* Shift Type Modal */
+.stm-section { margin-bottom: 14px; }
+.stm-title { font-size: .75rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.stm-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .8rem; font-weight: 700; border: 1px solid rgba(0,0,0,.1); }
+.stm-list { list-style: none; margin-bottom: 8px; min-height: 10px; }
+.stm-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0f0f0; }
+.stm-item:last-child { border-bottom: none; }
+.stm-hidden { opacity: .45; }
+.stm-lbl { flex: 1; font-size: .85rem; }
+.stm-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 6px; border-top: 1px dashed var(--border); }
+.stm-add input[type="text"] { padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: .83rem; font-family: inherit; }
+.stm-add #csCode { width: 7.5em; }
+.stm-add #csLabel { width: 9em; }
+
 /* Print */
 @media print {
   .app-header .hbtns, .tbr, .legend, .ov { display: none !important; }
