@@ -208,9 +208,7 @@ function renderTable(){
   // Build a map: day number -> border color (from fixedDates)
   const DATED_KEYS=[{key:'green',color:'#2e7d32'},{key:'red',color:'#c62828'}];
   const colBorder={};
-  // Note dates first (lower priority)
   Object.assign(colBorder, extractNoteDays(md.notes||[]));
-  // fixedDates override note dates
   DATED_KEYS.forEach(({key,color})=>{ if(fd[key]) colBorder[parseInt(fd[key])]=color; });
   let h='<thead><tr><th class="th-name">姓名</th>';
   for(let d=1;d<=days;d++){
@@ -273,7 +271,7 @@ function renderNotes(){
       <button class="nd" onclick="delNote(${i})" title="刪除">✕</button>
     </li>`
   ).join('');
-  el.innerHTML=fixedHtml+pubHolHtml+userHtml || '<li style="color:#aaa;font-size:.82rem;padding:4px 0">尚無注意事項</li>';
+  el.innerHTML=fixedHtml+pubHolHtml+userHtml;
 }
 
 function renderStats(){
@@ -329,7 +327,7 @@ function openShiftModal(e,dstr){
   document.getElementById('shiftModal').classList.add('open');
 }
 function renderPicker(){
-  const skills=new Set(empSkills[editCell&&editCell.e]||[]);
+  const skills=new Set(empSkills[editCell.e]||[]);
   // 固定可選：休假、清空；其餘依員工技能過濾（含自訂班別）
   const allowed=getShifts().filter(s=>!s.code||s.code==='休'||skills.has(s.code));
   document.getElementById('shiftPicker').innerHTML=
@@ -451,7 +449,6 @@ function assignDayShifts(workers, esch, d){
   const set=(e,sh)=>{ if(!esch[e]) esch[e]={}; esch[e][dstr]=sh; done.add(e); };
   const avail=e=>workers.includes(e)&&!done.has(e)&&!(esch[e]&&esch[e][dstr]);
   const hasSk=(e,sk)=>(empSkills[e]||[]).includes(sk);
-  // 依 emps 順序篩選：非備班技能 / 備班兼指定技能（管理員可透過排序調整優先順序）
   const noStandby=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,sk)&&!hasSk(e,'備'));
   const standbyFor=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,'備')&&hasSk(e,sk));
 
@@ -459,16 +456,12 @@ function assignDayShifts(workers, esch, d){
   const isHoliday=pubHols.some(h=>h.date===dstr);
   const useBei=workers.length>=5 && dw!==5 && dw!==6 && !isHoliday; // 5人以上且非五六及國定假日才排備班
 
-  // 廚（1人）：非備班員工優先，依 emps 順序
   let kitchenFilled=false;
   for(const e of noStandby('廚')){ if(avail(e)){set(e,'廚');kitchenFilled=true;break;} }
-  // 吧（1人）：非備班員工優先，依 emps 順序
   let barFilled=false;
   for(const e of noStandby('吧')){ if(avail(e)){set(e,'吧');barFilled=true;break;} }
-  // PT 員工（21-2技能）固定排 21-2，計入外場人數
   let floorN=0;
   emps.filter(e=>workers.includes(e)&&hasSk(e,'21-2')).forEach(e=>{ if(avail(e)){set(e,'21-2');floorN++;} });
-  // 外場（非備班優先，補足至2人）
   for(const e of noStandby('外')){
     if(floorN>=2) break;
     if(avail(e)){ set(e,'外'); floorN++; }
@@ -476,25 +469,19 @@ function assignDayShifts(workers, esch, d){
   // 每天最多一位備班
   let beiUsed=false;
   const sh4bei=(actual)=>{ if(useBei&&!beiUsed){beiUsed=true;return '備';}return actual; };
-
-  // 備班補廚房缺口：依 emps 順序
   if(!kitchenFilled){
     for(const e of standbyFor('廚')){ if(avail(e)){set(e,sh4bei('廚'));break;} }
   }
-  // 備班補外場缺口：依 emps 順序
   for(const e of standbyFor('外')){
     if(floorN>=2) break;
     if(avail(e)){ set(e,sh4bei('外')); floorN++; }
   }
-  // 備班補吧台缺口：依 emps 順序
   if(!barFilled){
     for(const e of standbyFor('吧')){ if(avail(e)){set(e,sh4bei('吧'));break;} }
   }
-  // 外場充足後考慮第2位吧台（非備班優先）
   if(floorN>=2){
     for(const e of noStandby('吧')){ if(avail(e)){set(e,'吧');break;} }
   }
-  // 剩餘員工：useBei 且有備班技能且當天備班尚未使用 → 備；否則排第一技能
   workers.forEach(e=>{
     const sk=empSkills[e]||[];
     if(avail(e)&&sk.length&&!hasSk(e,'21-2')){
@@ -611,7 +598,6 @@ function renderCustomShiftList(){
   ).join('');
 }
 function randomShiftColor(){
-  // pick a hue not too close to existing shifts, step by 10°
   const usedHues = getShifts().filter(s=>s.bg&&s.bg.startsWith('hsl')).map(s=>parseInt(s.bg.match(/\d+/)[0]));
   const candidates = Array.from({length:36},(_,i)=>i*10).filter(h=>usedHues.every(u=>Math.min(Math.abs(h-u),360-Math.abs(h-u))>=20));
   const hue = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : Math.floor(Math.random()*36)*10;
