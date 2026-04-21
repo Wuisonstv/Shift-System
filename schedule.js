@@ -70,6 +70,29 @@ function ensureMonth(y,m){
   emps.forEach(e=>{ if(!data[k].schedule[e]) data[k].schedule[e]={}; });
 }
 function save(){ localStorage.setItem('tls_data',JSON.stringify(data)); localStorage.setItem('tls_emps',JSON.stringify(emps)); localStorage.setItem('tls_skills',JSON.stringify(empSkills)); localStorage.setItem('tls_custom_shifts',JSON.stringify(customShifts)); localStorage.setItem('tls_hidden_builtins',JSON.stringify([...hiddenBuiltins])); }
+function exportData(){
+  const payload={data,emps,empSkills,customShifts,hiddenBuiltins:[...hiddenBuiltins]};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='排班資料_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function importData(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const p=JSON.parse(ev.target.result);
+      if(!p.data||!p.emps) throw new Error('格式錯誤');
+      if(!confirm('確定匯入？目前資料將被覆蓋。')) return;
+      data=p.data; emps=p.emps; empSkills=p.empSkills||{}; customShifts=p.customShifts||[]; hiddenBuiltins=new Set(p.hiddenBuiltins||[]);
+      updateSMAP(); save(); renderAll();
+    }catch(err){ alert('匯入失敗：'+err.message); }
+    e.target.value='';
+  };
+  reader.readAsText(file);
+}
 function hexAlpha(hex,a){ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
 
 // ══════════════════════════════════════════
@@ -605,6 +628,7 @@ function addCustomShift(){
   save();
   renderCustomShiftList();
   renderLegend();
+  renderTable();
   renderStats();
   document.getElementById('csCode').value=''; clearDraft('csCode');
   document.getElementById('csLabel').value=''; clearDraft('csLabel');
