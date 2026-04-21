@@ -85,7 +85,7 @@ function importData(e){
     try{
       const p=JSON.parse(ev.target.result);
       if(!p.data||!p.emps) throw new Error('格式錯誤');
-      if(!confirm('確定匯入？目前資料將被覆蓋。')) return;
+      if(!confirm('確定匯入？目前資料將被覆蓋。')){ e.target.value=''; return; }
       data=p.data; emps=p.emps; empSkills=p.empSkills||{}; customShifts=p.customShifts||[]; hiddenBuiltins=new Set(p.hiddenBuiltins||[]);
       updateSMAP(); save(); renderAll();
     }catch(err){ alert('匯入失敗：'+err.message); }
@@ -540,7 +540,7 @@ function autoSchedule(){
     }
     const needed=Math.min(restQuota[e], candidates.length);
     const step=candidates.length/needed;
-    const picks=Array.from({length:needed},(_,i)=>candidates[Math.round(i*step)||i*Math.floor(step)]);
+    const picks=Array.from({length:needed},(_,i)=>candidates[Math.round(i*step)]);
     // 驗證人力後寫入
     for(const d of picks){
       const workers=emps.filter(w=>!offSet[d].has(w)&&w!==e);
