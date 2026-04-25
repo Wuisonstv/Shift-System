@@ -7,7 +7,7 @@ const SHIFTS = [
   { code:'外',   label:'外場', bg:'#c8e6c9', fg:'#1b5e20' },
   { code:'文書', label:'文書', bg:'#e1bee7', fg:'#4a148c' },
   { code:'備',   label:'備班', bg:'#fff9c4', fg:'#f57f17' },
-  { code:'休',   label:'休假', bg:'#ffccbc', fg:'#bf360c' },
+  { code:'休',   label:'休假', bg:'#ffab91', fg:'#bf360c' },
   { code:'21-2', label:'PT', bg:'#c5cae9', fg:'#1a237e' },
   { code:'',     label:'清空', bg:'#f5f5f5', fg:'#9e9e9e' },
 ];
@@ -24,7 +24,8 @@ const WDS = ['日','一','二','三','四','五','六'];
 const FIXED_NOTES = [
   {text:'週二為固定公休日',            color:'#333333'},
   {text:'清冷氣濾網與製冰機',          color:'#2e7d32', dateKey:'green'},
-  {text:'清潔油槽',                    color:'#c62828', dateKey:'red'},
+  {text:'清潔油槽',                    color:'#1565c0', dateKey:'red'},
+  {text:'月會',                        color:'#6a1b9a', dateKey:'meeting'},
   {text:'禮拜五六為最忙碌時期盡可能全員到齊！', color:'#c62828'},
 ];
 
@@ -186,15 +187,29 @@ function renderLegend(){
 function extractNoteDays(notes){
   const map={};
   const maxD=daysIn(cy,cm);
+  const fill=(d1,d2,color)=>{ for(let d=Math.max(1,d1);d<=Math.min(maxD,d2);d++) map[d]=color; };
   notes.forEach(n=>{
     const t=n.text;
-    // "X月Y日" or "X月Y號" or "X/Y"
-    const re1=/(\d{1,2})[月\/](\d{1,2})[日號]?/g;
     let m;
+    // Range: "X/Y~X/Z" or "X月Y日~X月Z日" or "X/Y~Z" (end month optional)
+    const reRange=/(\d{1,2})[月\/](\d{1,2})[日號]?\s*[~～]\s*(?:(\d{1,2})[月\/])?(\d{1,2})[日號]?/g;
+    while((m=reRange.exec(t))!==null){
+      if(parseInt(m[1])!==cm) continue;
+      const d1=parseInt(m[2]), d2=parseInt(m[4]);
+      if(d1<=d2) fill(d1,d2,n.color);
+    }
+    // Range: "Y日~Z日" standalone
+    const reDayRange=/(?:^|[^\/\d])(\d{1,2})[日號]\s*[~～]\s*(\d{1,2})[日號]/g;
+    while((m=reDayRange.exec(t))!==null){
+      const d1=parseInt(m[1]), d2=parseInt(m[2]);
+      if(d1<=d2) fill(d1,d2,n.color);
+    }
+    // Single: "X月Y日" or "X/Y"
+    const re1=/(\d{1,2})[月\/](\d{1,2})[日號]?/g;
     while((m=re1.exec(t))!==null){
       if(parseInt(m[1])===cm){ const d=parseInt(m[2]); if(d>=1&&d<=maxD) map[d]=n.color; }
     }
-    // standalone "Y日" or "Y號"，排除前方是 / 或數字的情況（不用 lookbehind）
+    // Standalone "Y日" or "Y號"
     const re2=/(?:^|[^\/\d])(\d{1,2})[日號]/g;
     while((m=re2.exec(t))!==null){
       const d=parseInt(m[1]); if(d>=1&&d<=maxD) map[d]=n.color;
@@ -206,7 +221,7 @@ function renderTable(){
   const k=mkey(); const md=data[k]||{}; const days=daysIn(cy,cm);
   const fd=md.fixedDates||{};
   // Build a map: day number -> border color (from fixedDates)
-  const DATED_KEYS=[{key:'green',color:'#2e7d32'},{key:'red',color:'#c62828'}];
+  const DATED_KEYS=FIXED_NOTES.filter(n=>n.dateKey).map(n=>({key:n.dateKey,color:n.color}));
   const colBorder={};
   Object.assign(colBorder, extractNoteDays(md.notes||[]));
   DATED_KEYS.forEach(({key,color})=>{ if(fd[key]) colBorder[parseInt(fd[key])]=color; });
@@ -221,22 +236,19 @@ function renderTable(){
     else if(dw===5) cl+=' fri';
     const hoverTitle=isHol?'國定假日':dw>=1&&dw<=4?'平日':dw===5?'星期五':dw===6?'星期六':'星期日';
     const bc=colBorder[d];
-    const thStyle=bc?`box-shadow:inset 2px 0 0 ${bc},inset -2px 0 0 ${bc},inset 0 3px 0 ${bc};`:'';
-    h+=`<th class="${cl}" style="${thStyle}" title="${hoverTitle}"><div class="wd">${WDS[dw]}</div><div class="dn">${d}</div></th>`;
+    h+=`<th class="${cl}" title="${hoverTitle}"><div class="wd">${WDS[dw]}</div><div class="dn">${d}</div></th>`;
   }
   h+='</tr></thead><tbody>';
-  emps.forEach((e,ei)=>{
-    const isLast=ei===emps.length-1;
+  emps.forEach(e=>{
     const esch=((md.schedule||{})[e]||{});
     h+=`<tr><td class="td-name">${e}</td>`;
     for(let d=1;d<=days;d++){
       const dstr=ds(cy,cm,d); const dw2=dow(cy,cm,d);
       const sh=dw2===2?'休':(esch[dstr]||''); const s=SMAP[sh];
-      const bg=s?s.bg:'#fafafa'; const fg=s?s.fg:'#bbb';
-      const bc=colBorder[d];
-      const shadow=bc?(isLast?`box-shadow:inset 2px 0 0 ${bc},inset -2px 0 0 ${bc},inset 0 -3px 0 ${bc};`:`box-shadow:inset 2px 0 0 ${bc},inset -2px 0 0 ${bc};`):'';
+      const fg=s?s.fg:'#bbb'; const bc=colBorder[d];
+      const bgStyle=bc?`background:${hexAlpha(bc,.13)};`:(sh==='休'?`background:${s.bg};`:'');
       const clickable=dw2===2?'':`onclick="openShiftModal('${e}','${dstr}')"`;
-      h+=`<td class="sc" style="background:${bg};color:${fg};${shadow}" ${clickable} title="${e} ${cm}/${d}">${sh||'—'}</td>`;
+      h+=`<td class="sc" style="${bgStyle}color:${fg};" ${clickable} title="${e} ${cm}/${d}">${sh||'—'}</td>`;
     }
     h+='</tr>';
   });
@@ -418,7 +430,8 @@ function clearMonthConfirm(){
 function canStaff(workers){
   if(workers.length<4) return false;
   const rem=new Set(workers);
-  const hasSk=(e,sk)=>(empSkills[e]||[]).includes(sk);
+  const activeCodes=new Set(getShifts().filter(s=>s.code&&s.code!=='休').map(s=>s.code));
+  const hasSk=(e,sk)=>activeCodes.has(sk)&&(empSkills[e]||[]).includes(sk);
   // 廚：非備班員工優先；無人時 5 人以上可由備班兼廚補入
   const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚')&&!hasSk(e,'備'))
     ||(workers.length>=5 ? emps.find(e=>rem.has(e)&&hasSk(e,'備')&&hasSk(e,'廚')) : null);
@@ -448,7 +461,8 @@ function assignDayShifts(workers, esch, d){
   const done=new Set();
   const set=(e,sh)=>{ if(!esch[e]) esch[e]={}; esch[e][dstr]=sh; done.add(e); };
   const avail=e=>workers.includes(e)&&!done.has(e)&&!(esch[e]&&esch[e][dstr]);
-  const hasSk=(e,sk)=>(empSkills[e]||[]).includes(sk);
+  const activeCodes=new Set(getShifts().filter(s=>s.code&&s.code!=='休').map(s=>s.code));
+  const hasSk=(e,sk)=>activeCodes.has(sk)&&(empSkills[e]||[]).includes(sk);
   const noStandby=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,sk)&&!hasSk(e,'備'));
   const standbyFor=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,'備')&&hasSk(e,sk));
 
@@ -621,6 +635,8 @@ function addCustomShift(){
 }
 function removeCustomShift(i){
   if(!confirm(`確定刪除自訂班別「${customShifts[i].label}」？已排入的班表代碼將保留但不顯示顏色。`)) return;
+  const code=customShifts[i].code;
+  Object.keys(empSkills).forEach(e=>{ const idx=empSkills[e].indexOf(code); if(idx>=0) empSkills[e].splice(idx,1); });
   customShifts.splice(i,1);
   updateSMAP();
   save();

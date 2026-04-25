@@ -53,15 +53,7 @@ tr:nth-child(even) .td-name { background: var(--primary-light); }
 .sc { padding: 6px 3px; text-align: center; font-size: .82rem; font-weight: 600; cursor: pointer; border-left: 1px solid var(--border); border-top: 1px solid var(--border); transition: filter .1s; user-select: none; -webkit-user-select: none; min-height: 34px; vertical-align: middle; touch-action: manipulation; }
 tr:last-child .sc { border-bottom: 1px solid var(--border); }
 .sc:last-child { border-right: 1px solid var(--border); }
-.sc:hover { filter: brightness(.88); }/* Shift colors */
-.s-吧   { background:#bbdefb; color:#0d47a1; }
-.s-廚   { background:#ffe0b2; color:#bf360c; }
-.s-外   { background:#c8e6c9; color:#1b5e20; }
-.s-文書 { background:#e1bee7; color:#4a148c; }
-.s-備   { background:#fff9c4; color:#f57f17; }
-.s-休   { background:#ffccbc; color:#bf360c; }
-.s-21-2 { background:#c5cae9; color:#1a237e; }
-.s-x    { background:#fafafa; color:#bbb; }
+.sc:hover { filter: brightness(.88); }
 
 /* ── Bottom grid ── */
 .bot { display: grid; grid-template-columns: minmax(260px,1fr) 2fr; gap: 14px; margin-bottom: 16px; }
