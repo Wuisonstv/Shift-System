@@ -497,7 +497,7 @@ function assignDayShifts(workers, esch, d){
     for(const e of noStandby('吧')){ if(avail(e)){set(e,'吧');break;} }
   }
   workers.forEach(e=>{
-    const sk=empSkills[e]||[];
+    const sk=(empSkills[e]||[]).filter(c=>activeCodes.has(c));
     if(avail(e)&&sk.length&&!hasSk(e,'21-2')){
       if(useBei&&hasSk(e,'備')&&!beiUsed){ set(e,'備'); beiUsed=true; }
       else{ set(e,sk[0]); }
