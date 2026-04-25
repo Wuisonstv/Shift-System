@@ -235,7 +235,6 @@ function renderTable(){
     else if(dw===0) cl+=' sun';
     else if(dw===5) cl+=' fri';
     const hoverTitle=isHol?'國定假日':dw>=1&&dw<=4?'平日':dw===5?'星期五':dw===6?'星期六':'星期日';
-    const bc=colBorder[d];
     h+=`<th class="${cl}" title="${hoverTitle}"><div class="wd">${WDS[dw]}</div><div class="dn">${d}</div></th>`;
   }
   h+='</tr></thead><tbody>';
@@ -424,14 +423,14 @@ function clearMonthConfirm(){
   data[k]={schedule:{},notes:[],fixedDates:{}};
   ensureMonth(cy,cm); save(); renderAll();
 }
+function activeHasSk(e,sk){ return getShifts().some(s=>s.code===sk)&&(empSkills[e]||[]).includes(sk); }
 // 驗證當天工作人員能否符合最低人力需求
 // 需求：總計>=4、廚>=1、吧>=1、外(含PT)>=2
 // 優先順序依 emps 陣列（管理員可透過 UI 調整）；備班兼廚／外需同時具備對應技能
 function canStaff(workers){
   if(workers.length<4) return false;
   const rem=new Set(workers);
-  const activeCodes=new Set(getShifts().filter(s=>s.code&&s.code!=='休').map(s=>s.code));
-  const hasSk=(e,sk)=>activeCodes.has(sk)&&(empSkills[e]||[]).includes(sk);
+  const hasSk=activeHasSk;
   // 廚：非備班員工優先；無人時 5 人以上可由備班兼廚補入
   const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚')&&!hasSk(e,'備'))
     ||(workers.length>=5 ? emps.find(e=>rem.has(e)&&hasSk(e,'備')&&hasSk(e,'廚')) : null);
@@ -461,8 +460,7 @@ function assignDayShifts(workers, esch, d){
   const done=new Set();
   const set=(e,sh)=>{ if(!esch[e]) esch[e]={}; esch[e][dstr]=sh; done.add(e); };
   const avail=e=>workers.includes(e)&&!done.has(e)&&!(esch[e]&&esch[e][dstr]);
-  const activeCodes=new Set(getShifts().filter(s=>s.code&&s.code!=='休').map(s=>s.code));
-  const hasSk=(e,sk)=>activeCodes.has(sk)&&(empSkills[e]||[]).includes(sk);
+  const hasSk=activeHasSk;
   const noStandby=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,sk)&&!hasSk(e,'備'));
   const standbyFor=sk=>emps.filter(e=>workers.includes(e)&&hasSk(e,'備')&&hasSk(e,sk));
 
@@ -497,7 +495,7 @@ function assignDayShifts(workers, esch, d){
     for(const e of noStandby('吧')){ if(avail(e)){set(e,'吧');break;} }
   }
   workers.forEach(e=>{
-    const sk=(empSkills[e]||[]).filter(c=>activeCodes.has(c));
+    const sk=(empSkills[e]||[]).filter(c=>activeHasSk(e,c));
     if(avail(e)&&sk.length&&!hasSk(e,'21-2')){
       if(useBei&&hasSk(e,'備')&&!beiUsed){ set(e,'備'); beiUsed=true; }
       else{ set(e,sk[0]); }
