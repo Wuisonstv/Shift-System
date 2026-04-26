@@ -125,6 +125,21 @@
   </div>
 </div>
 
+<!-- STAFFING WARNING MODAL -->
+<div class="ov" id="staffWarnModal">
+  <div class="modal">
+    <div class="mhd">
+      <h3>⚠ 排班人力不符</h3>
+      <button class="mclose" onclick="closeStaffWarnModal()">✕</button>
+    </div>
+    <div id="staffWarnDate" style="color:#888;font-size:.85rem;margin-bottom:8px;"></div>
+    <ul id="staffWarnList" style="padding-left:1.4em;color:#c0392b;line-height:2;margin:0 0 16px;"></ul>
+    <div class="mac">
+      <button class="btn btn-p" onclick="closeStaffWarnModal()">我知道了</button>
+    </div>
+  </div>
+</div>
+
 <script src="schedule.js"></script>
 </body>
 </html>
