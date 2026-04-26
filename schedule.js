@@ -8,6 +8,7 @@ const SHIFTS = [
   { code:'文書', label:'文書', bg:'#e1bee7', fg:'#4a148c' },
   { code:'備',   label:'備班', bg:'#fff9c4', fg:'#f57f17' },
   { code:'休',   label:'休假', bg:'#ffab91', fg:'#bf360c' },
+  { code:'20-2', label:'PT', bg:'#bbdefb', fg:'#0d47a1' },
   { code:'21-2', label:'PT', bg:'#c5cae9', fg:'#1a237e' },
   { code:'',     label:'清空', bg:'#f5f5f5', fg:'#9e9e9e' },
 ];
@@ -351,7 +352,41 @@ function saveShift(){
   const {e,dstr}=editCell; const k=mkey(); ensureMonth(cy,cm);
   data[k].schedule[e][dstr]=selShift;
   save(); renderTable(); renderStats(); closeShiftModal();
+  const [y,mo,d]=dstr.split('-').map(Number);
+  if(dow(y,mo,d)!==2){ const v=getStaffingViolations(dstr); if(v.length) showStaffWarn(v,dstr); }
 }
+function getStaffingViolations(dstr){
+  const k=mkey(); const sch=(data[k]||{}).schedule||{};
+  const workers=emps.filter(e=>(sch[e]||{})[dstr]!=='休');
+  const violations=[];
+  if(workers.length<4){ violations.push(`在班人數不足 4 人（目前 ${workers.length} 人）`); return violations; }
+  const hasSk=activeHasSk; const rem=new Set(workers);
+  const isStandby=e=>(sch[e]||{})[dstr]==='備';
+  // 備班需 5 人以上才可排
+  if(workers.length<5 && workers.some(isStandby))
+    violations.push(`在班人數不足 5 人，不應排備班（目前 ${workers.length} 人）`);
+  // 廚房：備班不計
+  const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚')&&!isStandby(e));
+  if(!chef){ violations.push('缺少廚房人員（廚）'); } else { rem.delete(chef); }
+  // 吧台
+  const bar=emps.find(e=>rem.has(e)&&hasSk(e,'吧'));
+  if(!bar){ violations.push('缺少吧台人員（吧）'); } else { rem.delete(bar); }
+  // 外場：外、PT、備班均計入
+  let fc=0;
+  for(const e of emps){
+    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2')||hasSk(e,'20-2')||isStandby(e))){ rem.delete(e); fc++; }
+    if(fc>=2) break;
+  }
+  if(fc<2) violations.push(`外場人數不足 2 人（外／PT／備班，目前 ${fc} 人）`);
+  return violations;
+}
+function showStaffWarn(violations,dstr){
+  const [y,mo,d]=dstr.split('-').map(Number);
+  document.getElementById('staffWarnDate').textContent=`${y} 年 ${mo} 月 ${d} 日`;
+  document.getElementById('staffWarnList').innerHTML=violations.map(v=>`<li>${v}</li>`).join('');
+  document.getElementById('staffWarnModal').classList.add('open');
+}
+function closeStaffWarnModal(){ document.getElementById('staffWarnModal').classList.remove('open'); }
 function closeShiftModal(){
   document.getElementById('shiftModal').classList.remove('open');
   editCell=null; selShift=null;
@@ -440,10 +475,10 @@ function canStaff(workers){
   const bar=emps.find(e=>rem.has(e)&&hasSk(e,'吧'));
   if(!bar) return false;
   rem.delete(bar);
-  // 外（含 PT）：依 emps 順序，找有外或 21-2 技能者
+  // 外（含 PT）：依 emps 順序，找有外、21-2 或 20-2 技能者
   let fc=0;
   for(const e of emps){
-    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2'))){ rem.delete(e); fc++; }
+    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2')||hasSk(e,'20-2'))){ rem.delete(e); fc++; }
     if(fc>=2) break;
   }
   if(fc>=2) return true;
@@ -473,6 +508,7 @@ function assignDayShifts(workers, esch, d){
   let barFilled=false;
   for(const e of noStandby('吧')){ if(avail(e)){set(e,'吧');barFilled=true;break;} }
   let floorN=0;
+  emps.filter(e=>workers.includes(e)&&hasSk(e,'20-2')).forEach(e=>{ if(avail(e)){set(e,'20-2');floorN++;} });
   emps.filter(e=>workers.includes(e)&&hasSk(e,'21-2')).forEach(e=>{ if(avail(e)){set(e,'21-2');floorN++;} });
   for(const e of noStandby('外')){
     if(floorN>=2) break;
@@ -496,7 +532,7 @@ function assignDayShifts(workers, esch, d){
   }
   workers.forEach(e=>{
     const sk=(empSkills[e]||[]).filter(c=>activeHasSk(e,c));
-    if(avail(e)&&sk.length&&!hasSk(e,'21-2')){
+    if(avail(e)&&sk.length&&!hasSk(e,'21-2')&&!hasSk(e,'20-2')){
       if(useBei&&hasSk(e,'備')&&!beiUsed){ set(e,'備'); beiUsed=true; }
       else{ set(e,sk[0]); }
     }
@@ -524,7 +560,7 @@ function autoSchedule(){
   // 非豁免、非PT員工，依需求補足8天休
   const restQuota={};
   emps.forEach(e=>{
-    if(EXEMPT_EMPS.has(e)||(empSkills[e]||[]).includes('21-2')||(empSkills[e]||[]).length===0){ restQuota[e]=0; return; }
+    if(EXEMPT_EMPS.has(e)||(empSkills[e]||[]).includes('21-2')||(empSkills[e]||[]).includes('20-2')||(empSkills[e]||[]).length===0){ restQuota[e]=0; return; }
     const manualRest=Object.values(md.schedule[e]).filter(v=>v==='休').length;
     restQuota[e]=Math.max(0, REST_PER_MONTH - autoRestSet.size - manualRest);
   });
@@ -650,7 +686,8 @@ function removeCustomShift(i){
 document.getElementById('shiftModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftModal(); });
 document.getElementById('empModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeEmpModal(); });
 document.getElementById('shiftTypeModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftTypeModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); } });
+document.getElementById('staffWarnModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeStaffWarnModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); } });
 
 // ══════════════════════════════════════════
 //  DRAFT & AUTO-SAVE
