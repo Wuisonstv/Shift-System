@@ -48,7 +48,10 @@ body { font-family: 'Microsoft JhengHei','Noto Sans TC','微軟正黑體',sans-s
 .th-day.fri { background: #f3e5f5; }
 .th-day.sat { background: #fff8e1; }
 .th-day.sun { background: #fff3e0; }
-.th-day.hol { background: #fce4ec; }.td-name { background: var(--primary); color: #fff; padding: 7px 14px; font-size: .83rem; font-weight: 500; position: -webkit-sticky; position: sticky; left: 0; z-index: 5; border-top: 1px solid rgba(255,255,255,.15); white-space: nowrap; }
+.th-day.hol { background: #fce4ec; }
+.th-day.closed-day { background: #ffcdd2 !important; color: #b71c1c !important; }
+.th-day.closed-day .wd { color: #c62828 !important; }
+.closed-lbl { font-size: .58rem; color: #c62828; font-weight: 700; line-height: 1.2; }.td-name { background: var(--primary); color: #fff; padding: 7px 14px; font-size: .83rem; font-weight: 500; position: -webkit-sticky; position: sticky; left: 0; z-index: 5; border-top: 1px solid rgba(255,255,255,.15); white-space: nowrap; }
 tr:nth-child(even) .td-name { background: var(--primary-light); }
 .sc { padding: 6px 3px; text-align: center; font-size: .82rem; font-weight: 600; cursor: pointer; border-left: 1px solid var(--border); border-top: 1px solid var(--border); transition: filter .1s; user-select: none; -webkit-user-select: none; min-height: 34px; vertical-align: middle; touch-action: manipulation; }
 tr:last-child .sc { border-bottom: 1px solid var(--border); }
@@ -129,9 +132,19 @@ tr:last-child .sc { border-bottom: 1px solid var(--border); }
 .stm-add #csCode { width: 7.5em; }
 .stm-add #csLabel { width: 9em; }
 
+/* Rest Override */
+.ro-panel { margin-bottom: 14px; }
+.ro-hint { font-size: .75rem; color: #999; margin-bottom: 8px; }
+.ro-list { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.ro-row { display: flex; align-items: center; gap: 5px; }
+.ro-name { font-size: .83rem; font-weight: 500; min-width: 3.2em; }
+.ro-input { width: 3.2em; padding: 3px 4px; border: 1px solid var(--border); border-radius: 4px; font-size: .83rem; text-align: center; font-family: inherit; }
+.ro-input:focus { outline: none; border-color: var(--primary); }
+.ro-unit { font-size: .78rem; color: #888; }
+
 /* Print */
 @media print {
-  .app-header .hbtns, .tbr, .legend, .ov { display: none !important; }
+  .app-header .hbtns, .tbr, .legend, .ov, .ro-panel { display: none !important; }
   /* 統計表格隱藏，只保留注意事項 */
   .bot { display: block !important; margin-top: 10px; }
   .bot .panel:last-child { display: none !important; }
