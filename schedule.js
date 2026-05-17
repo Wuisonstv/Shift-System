@@ -246,14 +246,29 @@ function renderTable(){
     h+=`<tr><td class="td-name">${e}</td>`;
     for(let d=1;d<=days;d++){
       const dstr=ds(cy,cm,d);
-      const sh=closedDays.has(d)?'休':(esch[dstr]||''); const s=SMAP[sh];
+      const stored=esch[dstr]||'';
+      const sh=closedDays.has(d)?(stored||'休'):stored; const s=SMAP[sh];
       const fg=s?s.fg:'#bbb'; const bc=colBorder[d];
       const bgStyle=bc?`background:${hexAlpha(bc,.13)};`:(sh==='休'?`background:${s.bg};`:'');
-      const clickable=closedDays.has(d)?'':`onclick="openShiftModal('${e}','${dstr}')"`;
-      h+=`<td class="sc" style="${bgStyle}color:${fg};" ${clickable} title="${e} ${cm}/${d}">${sh||'—'}</td>`;
+      h+=`<td class="sc" style="${bgStyle}color:${fg};" onclick="openShiftModal('${e}','${dstr}')" title="${e} ${cm}/${d}">${sh||'—'}</td>`;
     }
     h+='</tr>';
   });
+  // Daily unfilled count row (hidden on print)
+  h+='<tr class="day-count-row"><td class="td-name day-count-label">未填入</td>';
+  for(let d=1;d<=days;d++){
+    const dstr=ds(cy,cm,d);
+    const bc=colBorder[d];
+    const bgStyle=closedDays.has(d)?`background:#ffcdd2;`:bc?`background:${hexAlpha(bc,.13)};`:'';
+    if(closedDays.has(d)){
+      h+=`<td class="sc day-count-cell" style="${bgStyle}">—</td>`;
+    } else {
+      const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
+      const cellStyle=empty>0?`${bgStyle}color:#c0392b;`:`${bgStyle}color:#27ae60;`;
+      h+=`<td class="sc day-count-cell" style="${cellStyle}">${empty}</td>`;
+    }
+  }
+  h+='</tr>';
   h+='</tbody>';
   document.getElementById('schTable').innerHTML=h;
 }
@@ -297,7 +312,8 @@ function renderStats(){
     st[e]={}; codes.forEach(c=>{st[e][c]=0;}); st[e]._w=0;
     const esch=(md.schedule||{})[e]||{};
     for(let d=1;d<=days2;d++){
-      const sh=closedDaysSt.has(d)?'休':(esch[ds(cy,cm,d)]||'');
+      const stored=esch[ds(cy,cm,d)]||'';
+      const sh=closedDaysSt.has(d)?(stored||'休'):stored;
       if(sh && st[e][sh]!==undefined){ st[e][sh]++; if(sh!=='休') st[e]._w++; }
     }
   });
@@ -547,10 +563,16 @@ function assignDayShifts(workers, esch, d){
   }
   const useBei=workers.length>=5 && dw!==5 && dw!==6 && !isHoliday && weekBeiCount===0;
 
+  // 吧台候選：主技能為吧的人優先（如阿維），其次依 emps 順序
+  const barSorted=[...emps].sort((a,b)=>{
+    const ap=(empSkills[a]||[])[0]==='吧'?0:1;
+    const bp=(empSkills[b]||[])[0]==='吧'?0:1;
+    return ap-bp;
+  });
   // 廚房
   for(const e of emps){ if(avail(e)&&hasSk(e,'廚')){ set(e,'廚'); break; } }
   // 吧台第1人
-  for(const e of emps){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
+  for(const e of barSorted){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
   // PT 外場
   let floorN=0;
   emps.filter(e=>workers.includes(e)&&hasSk(e,'20-2')).forEach(e=>{ if(avail(e)){set(e,'20-2');floorN++;} });
@@ -562,7 +584,7 @@ function assignDayShifts(workers, esch, d){
   }
   // 吧台第2人（外場>=2後才排）
   if(floorN>=2){
-    for(const e of emps){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
+    for(const e of barSorted){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
   }
   // 備班（5人以上，每天最多一人）
   if(useBei){
