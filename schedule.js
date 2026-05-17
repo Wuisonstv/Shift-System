@@ -17,6 +17,7 @@ let hiddenBuiltins = new Set();
 function getShifts(){ return [...SHIFTS.slice(0,-1).filter(s=>!hiddenBuiltins.has(s.code)), ...customShifts, SHIFTS[SHIFTS.length-1]]; }
 let SMAP = {};
 function updateSMAP(){ SMAP = Object.fromEntries(getShifts().map(s=>[s.code,s])); }
+function isRestShift(sh){ return !!sh && (sh==='休' || sh.includes('休')); }
 const WDS = ['日','一','二','三','四','五','六'];
 
 // ══════════════════════════════════════════
@@ -249,7 +250,8 @@ function renderTable(){
       const stored=esch[dstr]||'';
       const sh=closedDays.has(d)?(stored||'休'):stored; const s=SMAP[sh];
       const fg=s?s.fg:'#bbb'; const bc=colBorder[d];
-      const bgStyle=bc?`background:${hexAlpha(bc,.13)};`:(sh==='休'?`background:${s.bg};`:'');
+      const hasBg=s&&(sh==='休'||customShifts.some(cs=>cs.code===sh));
+      const bgStyle=hasBg?`background:${s.bg};`:bc?`background:${hexAlpha(bc,.13)};`:'';
       h+=`<td class="sc" style="${bgStyle}color:${fg};" onclick="openShiftModal('${e}','${dstr}')" title="${e} ${cm}/${d}">${sh||'—'}</td>`;
     }
     h+='</tr>';
@@ -266,6 +268,20 @@ function renderTable(){
       const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
       const cellStyle=empty>0?`${bgStyle}color:#c0392b;`:`${bgStyle}color:#27ae60;`;
       h+=`<td class="sc day-count-cell" style="${cellStyle}">${empty}</td>`;
+    }
+  }
+  h+='</tr>';
+  // Daily operating count row (hidden on print)
+  h+='<tr class="day-count-row"><td class="td-name day-count-label">營業人數</td>';
+  for(let d=1;d<=days;d++){
+    const dstr=ds(cy,cm,d);
+    const bc=colBorder[d];
+    const bgStyle=closedDays.has(d)?`background:#ffcdd2;`:bc?`background:${hexAlpha(bc,.13)};`:'';
+    if(closedDays.has(d)){
+      h+=`<td class="sc day-count-cell" style="${bgStyle}">—</td>`;
+    } else {
+      const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&sh!=='備'&&sh!=='文書'; }).length;
+      h+=`<td class="sc day-count-cell" style="${bgStyle}color:#1565c0;font-weight:700">${op}</td>`;
     }
   }
   h+='</tr>';
@@ -314,7 +330,7 @@ function renderStats(){
     for(let d=1;d<=days2;d++){
       const stored=esch[ds(cy,cm,d)]||'';
       const sh=closedDaysSt.has(d)?(stored||'休'):stored;
-      if(sh && st[e][sh]!==undefined){ st[e][sh]++; if(sh!=='休') st[e]._w++; }
+      if(sh && st[e][sh]!==undefined){ st[e][sh]++; if(!isRestShift(sh)) st[e]._w++; }
     }
   });
   let h='<div style="overflow-x:auto"><table class="stbl"><thead><tr><th>姓名</th>';
@@ -391,7 +407,7 @@ function saveShift(){
   data[k].schedule[e][dstr]=selShift;
   save(); renderTable(); renderStats(); closeShiftModal();
   const allV=[];
-  if(selShift&&selShift!=='休'){
+  if(selShift&&!isRestShift(selShift)){
     const [y2,m2,d2]=dstr.split('-').map(Number);
     const streak=consecWorkStreak(e,y2,m2,d2);
     if(streak>=7) allV.push(`${e} 連續工作 ${streak} 天（上限 6 天）`);
@@ -402,7 +418,7 @@ function saveShift(){
 function getStaffingViolations(dstr){
   const k=mkey(); const sch=(data[k]||{}).schedule||{};
   const isStandby=e=>(sch[e]||{})[dstr]==='備';
-  const workers=emps.filter(e=>(sch[e]||{})[dstr]!=='休');
+  const workers=emps.filter(e=>!isRestShift((sch[e]||{})[dstr]));
   const operationalWorkers=workers.filter(e=>!isStandby(e));
   const violations=[];
   if(operationalWorkers.length<4){ violations.push(`營業時間人數不足 4 人（目前 ${operationalWorkers.length} 人，備班不計）`); return violations; }
@@ -528,7 +544,7 @@ function consecWorkStreak(e,year,month,day){
     const cd=new Set((data[k2]||{}).closedDays||[]);
     if(cd.has(d2)) return true;
     const sh=((data[k2]||{}).schedule||{})[e]?.[ds(y2,m2,d2)]||'';
-    return !sh||sh==='休';
+    return !sh||isRestShift(sh);
   };
   let before=0,ty=year,tm=month,td=day-1;
   while(before<31){if(td<1){tm--;if(tm<1){tm=12;ty--;}td=daysIn(ty,tm);}if(getOff(ty,tm,td))break;before++;td--;}
@@ -612,7 +628,7 @@ function autoSchedule(){
   const offSet={};
   for(let d=1;d<=days;d++){
     offSet[d]=new Set();
-    emps.forEach(e=>{ if(md.schedule[e][ds(cy,cm,d)]==='休') offSet[d].add(e); });
+    emps.forEach(e=>{ if(isRestShift(md.schedule[e][ds(cy,cm,d)])) offSet[d].add(e); });
   }
 
   // ── Phase 1：分配休假日 ──
@@ -620,7 +636,7 @@ function autoSchedule(){
   const restQuota={};
   // 配額扣除公休日預估數，避免統計顯示超出目標
   emps.forEach(e=>{
-    const manualRest=Object.values(md.schedule[e]).filter(v=>v==='休').length;
+    const manualRest=Object.values(md.schedule[e]).filter(v=>isRestShift(v)).length;
     if(e in overrides){
       restQuota[e]=Math.max(0,(overrides[e]||0)-manualRest-MAX_CLOSED);
     } else {
@@ -677,7 +693,7 @@ function autoSchedule(){
     let initStreak=0;
     for(let pd=prevDaysCount;pd>=1;pd--){
       const psh=prevClosed.has(pd)?'休':((prevMd.schedule||{})[e]?.[ds(prevY,prevM,pd)]||'');
-      if(!psh||psh==='休') break;
+      if(!psh||isRestShift(psh)) break;
       initStreak++; if(initStreak>=6) break;
     }
     let streak=initStreak;
