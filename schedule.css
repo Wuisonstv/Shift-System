@@ -3,7 +3,6 @@
   --primary: #2c3e50;
   --primary-light: #34495e;
   --bg: #f0f2f5;
-  --white: #fff;
   --border: #e0e0e0;
 }
 body { font-family: 'Microsoft JhengHei','Noto Sans TC','微軟正黑體',sans-serif; background: var(--bg); color: #333; min-height: 100vh; }
@@ -144,6 +143,19 @@ tr:last-child .sc { border-bottom: 1px solid var(--border); }
 .ro-input { width: 3.2em; padding: 3px 4px; border: 1px solid var(--border); border-radius: 4px; font-size: .83rem; text-align: center; font-family: inherit; }
 .ro-input:focus { outline: none; border-color: var(--primary); }
 .ro-unit { font-size: .78rem; color: #888; }
+
+/* ── Bulk Leave ── */
+.bl-row { display: flex; align-items: center; margin-bottom: 12px; font-size: .88rem; }
+.bl-row label { color: #555; min-width: 72px; }
+.bl-row select { flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: .88rem; font-family: inherit; }
+.bl-cal-hdr { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 4px; }
+.bl-cal-hdr div { text-align: center; font-size: .72rem; color: #999; font-weight: 600; padding: 2px 0; }
+.bl-cal-body { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.bl-day { text-align: center; padding: 7px 2px; font-size: .83rem; border-radius: 4px; cursor: pointer; border: 1px solid transparent; user-select: none; }
+.bl-day:hover { background: #e3f2fd; }
+.bl-day.bl-sat { color: #1565c0; }
+.bl-day.bl-sun { color: #c62828; }
+.bl-day.bl-sel { background: #ffab91; color: #bf360c; border-color: #e8705a; font-weight: 700; }
 
 /* Print */
 @media print {

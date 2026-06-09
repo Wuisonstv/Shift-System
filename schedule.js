@@ -17,7 +17,12 @@ let hiddenBuiltins = new Set();
 function getShifts(){ return [...SHIFTS.slice(0,-1).filter(s=>!hiddenBuiltins.has(s.code)), ...customShifts, SHIFTS[SHIFTS.length-1]]; }
 let SMAP = {};
 function updateSMAP(){ SMAP = Object.fromEntries(getShifts().map(s=>[s.code,s])); }
-function isRestShift(sh){ return !!sh && (sh==='休' || sh.includes('休')); }
+function isRestShift(sh){
+  if(!sh) return false;
+  if(sh==='休'||sh.includes('休')) return true;
+  const cs=customShifts.find(s=>s.code===sh);
+  return cs?(cs.label.includes('休')||cs.label.includes('假')):false;
+}
 const WDS = ['日','一','二','三','四','五','六'];
 
 // ══════════════════════════════════════════
@@ -280,7 +285,7 @@ function renderTable(){
     if(closedDays.has(d)){
       h+=`<td class="sc day-count-cell" style="${bgStyle}">—</td>`;
     } else {
-      const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&sh!=='備'&&sh!=='文書'; }).length;
+      const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
       h+=`<td class="sc day-count-cell" style="${bgStyle}color:#1565c0;font-weight:700">${op}</td>`;
     }
   }
@@ -415,6 +420,20 @@ function saveShift(){
   allV.push(...getStaffingViolations(dstr));
   if(allV.length) showStaffWarn(allV,dstr);
 }
+function _checkStaffingRoles(operationalWorkers){
+  const violations=[]; const hasSk=activeHasSk; const rem=new Set(operationalWorkers);
+  const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚'));
+  if(!chef){ violations.push('缺少廚房人員（廚）'); } else { rem.delete(chef); }
+  const bar=emps.find(e=>rem.has(e)&&hasSk(e,'吧'));
+  if(!bar){ violations.push('缺少吧台人員（吧）'); } else { rem.delete(bar); }
+  let fc=0;
+  for(const e of emps){
+    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2')||hasSk(e,'20-2'))){ rem.delete(e); fc++; }
+    if(fc>=2) break;
+  }
+  if(fc<2) violations.push(`外場人數不足 2 人（外／PT，目前 ${fc} 人）`);
+  return violations;
+}
 function getStaffingViolations(dstr){
   const k=mkey(); const sch=(data[k]||{}).schedule||{};
   const isStandby=e=>(sch[e]||{})[dstr]==='備';
@@ -422,23 +441,9 @@ function getStaffingViolations(dstr){
   const operationalWorkers=workers.filter(e=>!isStandby(e));
   const violations=[];
   if(operationalWorkers.length<4){ violations.push(`營業時間人數不足 4 人（目前 ${operationalWorkers.length} 人，備班不計）`); return violations; }
-  const hasSk=activeHasSk; const rem=new Set(operationalWorkers);
-  // 備班需 5 人以上才可排
-  if(workers.length<5 && workers.some(isStandby))
+  if(workers.length<5&&workers.some(isStandby))
     violations.push(`在班人數不足 5 人，不應排備班（目前 ${workers.length} 人）`);
-  // 廚房（備班不計）
-  const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚'));
-  if(!chef){ violations.push('缺少廚房人員（廚）'); } else { rem.delete(chef); }
-  // 吧台
-  const bar=emps.find(e=>rem.has(e)&&hasSk(e,'吧'));
-  if(!bar){ violations.push('缺少吧台人員（吧）'); } else { rem.delete(bar); }
-  // 外場（備班不計入）
-  let fc=0;
-  for(const e of emps){
-    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2')||hasSk(e,'20-2'))){ rem.delete(e); fc++; }
-    if(fc>=2) break;
-  }
-  if(fc<2) violations.push(`外場人數不足 2 人（外／PT，目前 ${fc} 人）`);
+  violations.push(..._checkStaffingRoles(operationalWorkers));
   return violations;
 }
 function showStaffWarn(violations,dstr){
@@ -522,20 +527,7 @@ function clearMonthConfirm(){
 function activeHasSk(e,sk){ return getShifts().some(s=>s.code===sk)&&(empSkills[e]||[]).includes(sk); }
 function canStaff(workers){
   if(workers.length<4) return false;
-  const rem=new Set(workers);
-  const hasSk=activeHasSk;
-  const chef=emps.find(e=>rem.has(e)&&hasSk(e,'廚'));
-  if(!chef) return false;
-  rem.delete(chef);
-  const bar=emps.find(e=>rem.has(e)&&hasSk(e,'吧'));
-  if(!bar) return false;
-  rem.delete(bar);
-  let fc=0;
-  for(const e of emps){
-    if(rem.has(e)&&(hasSk(e,'外')||hasSk(e,'21-2')||hasSk(e,'20-2'))){ rem.delete(e); fc++; }
-    if(fc>=2) break;
-  }
-  return fc>=2;
+  return _checkStaffingRoles(workers).length===0;
 }
 
 function consecWorkStreak(e,year,month,day){
@@ -816,13 +808,67 @@ function removeCustomShift(i){
 }
 
 // ══════════════════════════════════════════
+//  BULK LEAVE
+// ══════════════════════════════════════════
+let blSelectedDays = new Set();
+
+function openBulkLeaveModal(){
+  blSelectedDays=new Set();
+  const sel=document.getElementById('blEmp');
+  sel.innerHTML='<option value="__all__">— 全部員工 —</option>'+emps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  document.getElementById('blOverwrite').checked=false;
+  renderBlCalGrid();
+  document.getElementById('bulkLeaveModal').classList.add('open');
+}
+function closeBulkLeaveModal(){ document.getElementById('bulkLeaveModal').classList.remove('open'); }
+
+function renderBlCalGrid(){
+  const days=daysIn(cy,cm); const firstDow=dow(cy,cm,1);
+  let h='<div class="bl-cal-hdr">'+WDS.map(w=>`<div>${w}</div>`).join('')+'</div><div class="bl-cal-body">';
+  for(let i=0;i<firstDow;i++) h+='<div></div>';
+  for(let d=1;d<=days;d++){
+    const dw=dow(cy,cm,d); const sel=blSelectedDays.has(d);
+    let cls='bl-day'+(dw===0?' bl-sun':dw===6?' bl-sat':'')+(sel?' bl-sel':'');
+    h+=`<div class="${cls}" onclick="blToggleDay(${d})">${d}</div>`;
+  }
+  h+='</div>';
+  document.getElementById('blCalGrid').innerHTML=h;
+}
+
+function blToggleDay(d){
+  blSelectedDays.has(d)?blSelectedDays.delete(d):blSelectedDays.add(d);
+  renderBlCalGrid();
+}
+
+function applyBulkLeave(){
+  const empVal=document.getElementById('blEmp').value;
+  const overwrite=document.getElementById('blOverwrite').checked;
+  if(!blSelectedDays.size){ alert('請點選要請假的日期'); return; }
+  const targetEmps=empVal==='__all__'?emps:[empVal];
+  ensureMonth(cy,cm);
+  const k=mkey(); const md=data[k];
+  let count=0;
+  blSelectedDays.forEach(day=>{
+    const dstr=ds(cy,cm,day);
+    targetEmps.forEach(emp=>{
+      if(!md.schedule[emp]) md.schedule[emp]={};
+      if(!md.schedule[emp][dstr]||overwrite){ md.schedule[emp][dstr]='休'; count++; }
+    });
+  });
+  save(); renderAll();
+  alert(`已標記 ${count} 筆請假`);
+  closeBulkLeaveModal();
+}
+
+// ══════════════════════════════════════════
 //  CLOSE ON OUTSIDE CLICK / ESC
 // ══════════════════════════════════════════
 document.getElementById('shiftModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftModal(); });
 document.getElementById('empModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeEmpModal(); });
 document.getElementById('shiftTypeModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftTypeModal(); });
 document.getElementById('staffWarnModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeStaffWarnModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); } });
+document.getElementById('bulkLeaveModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeBulkLeaveModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); closeBulkLeaveModal(); } });
 
 // ══════════════════════════════════════════
 //  DRAFT & AUTO-SAVE

@@ -18,6 +18,7 @@
     <button onclick="exportData()">💾 匯出資料</button>
     <button onclick="document.getElementById('importFile').click()">📂 匯入資料</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+    <button onclick="openBulkLeaveModal()">📅 批量請假</button>
     <button onclick="window.print()">🖨️ 列印</button>
   </div>
 </div>
@@ -143,6 +144,30 @@
     <ul id="staffWarnList" style="padding-left:1.4em;color:#c0392b;line-height:2;margin:0 0 16px;"></ul>
     <div class="mac">
       <button class="btn btn-p" onclick="closeStaffWarnModal()">我知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- BULK LEAVE MODAL -->
+<div class="ov" id="bulkLeaveModal">
+  <div class="modal">
+    <div class="mhd">
+      <h3>📅 批量請假</h3>
+      <button class="mclose" onclick="closeBulkLeaveModal()">✕</button>
+    </div>
+    <div class="bl-row">
+      <label>員工</label>
+      <select id="blEmp"></select>
+    </div>
+    <div id="blCalGrid" style="margin:10px 0"></div>
+    <div class="bl-row">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="blOverwrite"> 覆蓋已填入的班別
+      </label>
+    </div>
+    <div class="mac" style="margin-top:14px">
+      <button class="btn btn-s" onclick="closeBulkLeaveModal()">取消</button>
+      <button class="btn btn-p" onclick="applyBulkLeave()">套用</button>
     </div>
   </div>
 </div>
