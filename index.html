@@ -50,6 +50,12 @@
   <div class="panel ro-panel">
     <div class="ptitle">📅 本月應休天數</div>
     <div class="ro-hint">未填入則採預設 8 天；有填數字才強制執行（僅影響自動排班）</div>
+    <div class="ro-row" style="border-bottom:1px solid #eee;margin-bottom:6px;padding-bottom:8px">
+      <span class="ro-name" style="font-weight:700">本月公休天數</span>
+      <input type="number" min="0" max="14" class="ro-input" id="maxClosedInput" value="4" onchange="setMaxClosed(this.value)">
+      <span class="ro-unit">天</span>
+      <span class="ro-hint" style="margin:0;font-size:.75rem">自動排班時採用</span>
+    </div>
     <div id="restOverrideList" class="ro-list"></div>
   </div>
 
@@ -85,6 +91,10 @@
       <button class="mclose" onclick="closeShiftModal()">✕</button>
     </div>
     <div class="spicker" id="shiftPicker"></div>
+    <div class="bei-time-row" id="beiTimeRow" style="display:none">
+      <span class="bei-time-label">備班時段</span>
+      <input type="text" id="beiTimeInput" placeholder="例：16~1（選填）" maxlength="10">
+    </div>
     <div class="mac">
       <button class="btn btn-s" onclick="closeShiftModal()">取消</button>
       <button class="btn btn-p" onclick="saveShift()">確認</button>

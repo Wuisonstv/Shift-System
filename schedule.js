@@ -8,6 +8,7 @@ const SHIFTS = [
   { code:'文書', label:'文書', bg:'#e1bee7', fg:'#4a148c' },
   { code:'備',   label:'備班', bg:'#fff9c4', fg:'#f57f17' },
   { code:'休',   label:'休假', bg:'#ffab91', fg:'#bf360c' },
+  { code:'特休', label:'特別休假', bg:'#dcedc8', fg:'#33691e' },
   { code:'20-2', label:'PT', bg:'#bbdefb', fg:'#0d47a1' },
   { code:'21-2', label:'PT', bg:'#c5cae9', fg:'#1a237e' },
   { code:'',     label:'清空', bg:'#f5f5f5', fg:'#9e9e9e' },
@@ -35,7 +36,7 @@ const FIXED_NOTES = [
   {text:'禮拜五六為最忙碌時期盡可能全員到齊！', color:'#c62828'},
 ];
 
-const DEF_EMPS = ['Eric','Teen','Sue','Susan','Sharon','小黃','阿維','子芯'];
+const DEF_EMPS = ['Eric','Teen','Sue','Susan','Sharon','阿維','子芯'];
 
 // 人員技能（動態，可透過 UI 修改）
 const DEF_SKILLS = {
@@ -44,12 +45,11 @@ const DEF_SKILLS = {
   'Sue':    ['文書','外'],
   'Susan':  ['外','備','廚'],
   'Sharon': ['外','備'],
-  '小黃':   ['外','吧','廚'],
   '阿維':   ['吧','備'],
   '子芯':   ['21-2'],
 };
 let empSkills = {};
-function getSkillOpts(){ return getShifts().filter(s=>s.code&&s.code!=='休'); } // 可選技能班別
+function getSkillOpts(){ return getShifts().filter(s=>s.code&&!isRestShift(s.code)); } // 可選技能班別
 const EXEMPT_EMPS = new Set(['Eric','Teen','Sue']); // 不受8天限制
 const REST_PER_MONTH = 8;
 
@@ -253,41 +253,48 @@ function renderTable(){
     for(let d=1;d<=days;d++){
       const dstr=ds(cy,cm,d);
       const stored=esch[dstr]||'';
-      const sh=closedDays.has(d)?(stored||'休'):stored; const s=SMAP[sh];
-      const fg=s?s.fg:'#bbb'; const bc=colBorder[d];
-      const hasBg=s&&(sh==='休'||customShifts.some(cs=>cs.code===sh));
+      const sh=closedDays.has(d)?(stored||'休'):stored;
+      // 顏色：先查完整代碼，找不到時取第一個部分的基底代碼（備16~1 → 備）
+      const shBase0=sh?(sh.split('/')[0].startsWith('備')?'備':sh.split('/')[0]):'';
+      const s=SMAP[sh]||(sh&&sh.includes('/')?SMAP[shBase0]:undefined)||(sh&&sh.startsWith('備')?SMAP['備']:undefined);
+      const fg=s?s.fg:(sh?'#555':'#bbb'); const bc=colBorder[d];
+      const hasBg=s&&SMAP[sh]&&(isRestShift(sh)||customShifts.some(cs=>cs.code===sh));
       const bgStyle=hasBg?`background:${s.bg};`:bc?`background:${hexAlpha(bc,.13)};`:'';
-      h+=`<td class="sc" style="${bgStyle}color:${fg};" onclick="openShiftModal('${e}','${dstr}')" title="${e} ${cm}/${d}">${sh||'—'}</td>`;
+      // 顯示：備班時段統一拉到下方，代碼們排同一行
+      let cellContent=sh||'—';
+      if(sh){
+        const parts=sh.split('/');
+        let beiTime='';
+        const labels=parts.map(p=>{ if(p.startsWith('備')&&p.length>1){beiTime=p.slice(1);return '備';} return p; });
+        cellContent=beiTime
+          ?`${labels.join('/')}<div style="font-size:.6rem;font-weight:500;line-height:1.2;margin-top:1px">${beiTime}</div>`
+          :labels.join('/');
+      }
+      h+=`<td class="sc" style="${bgStyle}color:${fg};" onclick="openShiftModal('${e}','${dstr}')" title="${e} ${cm}/${d}">${cellContent}</td>`;
     }
     h+='</tr>';
   });
+  const dayCountCell=(d,content,style)=>{
+    const bc=colBorder[d];
+    const bg=closedDays.has(d)?`background:#ffcdd2;`:bc?`background:${hexAlpha(bc,.13)};`:'';
+    return closedDays.has(d)
+      ?`<td class="sc day-count-cell" style="${bg}">—</td>`
+      :`<td class="sc day-count-cell" style="${bg}${style}">${content}</td>`;
+  };
   // Daily unfilled count row (hidden on print)
   h+='<tr class="day-count-row"><td class="td-name day-count-label">未填入</td>';
   for(let d=1;d<=days;d++){
     const dstr=ds(cy,cm,d);
-    const bc=colBorder[d];
-    const bgStyle=closedDays.has(d)?`background:#ffcdd2;`:bc?`background:${hexAlpha(bc,.13)};`:'';
-    if(closedDays.has(d)){
-      h+=`<td class="sc day-count-cell" style="${bgStyle}">—</td>`;
-    } else {
-      const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
-      const cellStyle=empty>0?`${bgStyle}color:#c0392b;`:`${bgStyle}color:#27ae60;`;
-      h+=`<td class="sc day-count-cell" style="${cellStyle}">${empty}</td>`;
-    }
+    const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
+    h+=dayCountCell(d,empty,empty>0?'color:#c0392b;':'color:#27ae60;');
   }
   h+='</tr>';
   // Daily operating count row (hidden on print)
   h+='<tr class="day-count-row"><td class="td-name day-count-label">營業人數</td>';
   for(let d=1;d<=days;d++){
     const dstr=ds(cy,cm,d);
-    const bc=colBorder[d];
-    const bgStyle=closedDays.has(d)?`background:#ffcdd2;`:bc?`background:${hexAlpha(bc,.13)};`:'';
-    if(closedDays.has(d)){
-      h+=`<td class="sc day-count-cell" style="${bgStyle}">—</td>`;
-    } else {
-      const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
-      h+=`<td class="sc day-count-cell" style="${bgStyle}color:#1565c0;font-weight:700">${op}</td>`;
-    }
+    const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
+    h+=dayCountCell(d,op,'color:#1565c0;font-weight:700;');
   }
   h+='</tr>';
   h+='</tbody>';
@@ -335,7 +342,22 @@ function renderStats(){
     for(let d=1;d<=days2;d++){
       const stored=esch[ds(cy,cm,d)]||'';
       const sh=closedDaysSt.has(d)?(stored||'休'):stored;
-      if(sh && st[e][sh]!==undefined){ st[e][sh]++; if(!isRestShift(sh)) st[e]._w++; }
+      if(sh){
+        if(st[e][sh]!==undefined){ st[e][sh]++; if(!isRestShift(sh)) st[e]._w++; }
+        else if(sh.includes('/')){
+          // 組合班別：拆開分別計數，整天算 1 個工作天
+          const parts=sh.split('/');
+          let counted=false;
+          parts.forEach(p=>{
+            const base=p.startsWith('備')?'備':p;
+            if(st[e][base]!==undefined){ st[e][base]++; counted=true; }
+          });
+          if(counted&&!isRestShift(sh)) st[e]._w++;
+        } else if(sh.startsWith('備')&&st[e]['備']!==undefined){
+          // 備班附時段（如「備 14:00」）歸入備欄
+          st[e]['備']++; st[e]._w++;
+        }
+      }
     }
   });
   let h='<div style="overflow-x:auto"><table class="stbl"><thead><tr><th>姓名</th>';
@@ -350,9 +372,21 @@ function renderStats(){
   document.getElementById('statsContent').innerHTML=h;
 }
 
+function getMaxClosed(){
+  const md=data[mkey()]||{};
+  return md.maxClosedDays!=null?md.maxClosedDays:4;
+}
+function setMaxClosed(val){
+  const k=mkey(); ensureMonth(cy,cm);
+  const n=parseInt(val);
+  data[k].maxClosedDays=isNaN(n)||n<0?0:Math.min(14,n);
+  save();
+}
 function renderRestOverride(){
   const k=mkey(); const md=data[k]||{};
   const ov=md.restOverride||{};
+  const inp=document.getElementById('maxClosedInput');
+  if(inp) inp.value=getMaxClosed();
   document.getElementById('restOverrideList').innerHTML=
     emps.map(e=>`<div class="ro-row">
       <span class="ro-name">${e}</span>
@@ -391,7 +425,11 @@ function delNote(i){ const k=mkey(); data[k].notes.splice(i,1); save(); renderNo
 // ══════════════════════════════════════════
 function openShiftModal(e,dstr){
   editCell={e,dstr};
-  const k=mkey(); selShift=(((data[k]||{}).schedule||{})[e]||{})[dstr]||'';
+  const k=mkey();
+  const stored=(((data[k]||{}).schedule||{})[e]||{})[dstr]||'';
+  // 備班時段分離：'備 14:00' → selShift='備', beiTimeInput='14:00'
+  if(stored.startsWith('備')&&stored.length>1){ selShift='備'; document.getElementById('beiTimeInput').value=stored.slice(1); }
+  else { selShift=stored; document.getElementById('beiTimeInput').value=''; }
   const [y,mo,d]=dstr.split('-');
   document.getElementById('shiftModalTitle').textContent=`${e} — ${+mo}/${+d} (${WDS[dow(+y,+mo,+d)]})`;
   renderPicker();
@@ -400,16 +438,37 @@ function openShiftModal(e,dstr){
 function renderPicker(){
   const skills=new Set(empSkills[editCell.e]||[]);
   // 固定可選：休假、清空；其餘依員工技能過濾（含自訂班別）
-  const allowed=getShifts().filter(s=>!s.code||s.code==='休'||skills.has(s.code));
-  document.getElementById('shiftPicker').innerHTML=
-    allowed.map(s=>`<div class="sopt${selShift===s.code?' sel':''}" style="background:${s.bg};color:${s.fg};border-color:${selShift===s.code?s.fg:'transparent'}" onclick="pickShift('${s.code}')">${s.code||'清空'}</div>`
-  ).join('');
+  const allowed=getShifts().filter(s=>!s.code||isRestShift(s.code)||skills.has(s.code));
+  const selected=selShift?selShift.split('/').filter(Boolean):[];
+  let html=allowed.map(s=>{
+    const isSel=s.code?selected.includes(s.code):selShift==='';
+    return `<div class="sopt${isSel?' sel':''}" style="background:${s.bg};color:${s.fg};border-color:${isSel?s.fg:'transparent'}" onclick="pickShift('${s.code}')">${s.code||'清空'}</div>`;
+  }).join('');
+  if(selected.length>1) html+=`<div class="spicker-preview">已選：${selShift}</div>`;
+  document.getElementById('shiftPicker').innerHTML=html;
+  document.getElementById('beiTimeRow').style.display=selected.includes('備')?'flex':'none';
 }
-function pickShift(c){ selShift=c; renderPicker(); }
+function pickShift(c){
+  if(!c){ selShift=''; document.getElementById('beiTimeInput').value=''; renderPicker(); return; }
+  if(isRestShift(c)){ selShift=c; document.getElementById('beiTimeInput').value=''; renderPicker(); return; }
+  // 工作班別 = toggle 多選
+  const parts=selShift?selShift.split('/').filter(x=>x&&!isRestShift(x)):[];
+  const idx=parts.indexOf(c);
+  if(idx>=0) parts.splice(idx,1); else parts.push(c);
+  selShift=parts.join('/');
+  if(!parts.includes('備')) document.getElementById('beiTimeInput').value='';
+  renderPicker();
+}
 function saveShift(){
   if(!editCell) return;
   const {e,dstr}=editCell; const k=mkey(); ensureMonth(cy,cm);
-  data[k].schedule[e][dstr]=selShift;
+  // 備班時段：'備' + ' ' + 時段文字
+  let finalShift=selShift;
+  if(selShift==='備'||selShift.split('/').includes('備')){
+    const t=document.getElementById('beiTimeInput').value.trim();
+    if(t) finalShift=selShift==='備'?`備${t}`:selShift.split('/').map(p=>p==='備'?`備${t}`:p).join('/');
+  }
+  data[k].schedule[e][dstr]=finalShift;
   save(); renderTable(); renderStats(); closeShiftModal();
   const allV=[];
   if(selShift&&!isRestShift(selShift)){
@@ -436,7 +495,7 @@ function _checkStaffingRoles(operationalWorkers){
 }
 function getStaffingViolations(dstr){
   const k=mkey(); const sch=(data[k]||{}).schedule||{};
-  const isStandby=e=>(sch[e]||{})[dstr]==='備';
+  const isStandby=e=>((sch[e]||{})[dstr]||'').startsWith('備');
   const workers=emps.filter(e=>!isRestShift((sch[e]||{})[dstr]));
   const operationalWorkers=workers.filter(e=>!isStandby(e));
   const violations=[];
@@ -560,13 +619,13 @@ function assignDayShifts(workers, esch, d){
   let weekBeiCount=0;
   for(let wd=Math.max(1,weekStart);wd<d;wd++){
     const wdstr=ds(cy,cm,wd);
-    for(const e2 of emps){if((esch[e2]||{})[wdstr]==='備')weekBeiCount++;}
+    for(const e2 of emps){if(((esch[e2]||{})[wdstr]||'').startsWith('備'))weekBeiCount++;}
   }
   if(weekStart<1){
     const py=cm===1?cy-1:cy,pm=cm===1?12:cm-1,pk=mkey(py,pm),pd=daysIn(py,pm);
     for(let wd=pd+weekStart;wd<=pd;wd++){
       const wdstr=ds(py,pm,wd);
-      for(const e2 of emps){if(((data[pk]||{}).schedule||{})[e2]?.[wdstr]==='備')weekBeiCount++;}
+      for(const e2 of emps){if((((data[pk]||{}).schedule||{})[e2]?.[wdstr]||'').startsWith('備'))weekBeiCount++;}
     }
   }
   const useBei=workers.length>=5 && dw!==5 && dw!==6 && !isHoliday && weekBeiCount===0;
@@ -611,7 +670,7 @@ function autoSchedule(){
   if(!confirm(`自動排班將填入 ${cy} 年 ${cm} 月 所有空白格，已手動填寫的班別不受影響，確定繼續？`)) return;
   const k=mkey(); ensureMonth(cy,cm);
   const md=data[k]; const days=daysIn(cy,cm);
-  const MAX_CLOSED=4;
+  const MAX_CLOSED=getMaxClosed();
 
   // 重置公休日（排班結束後依分布重新決定）
   data[k].closedDays=[];
