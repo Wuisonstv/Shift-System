@@ -140,6 +140,7 @@ const TW_HOLIDAYS = {
 function loadPubHols(){
   pubHols = (TW_HOLIDAYS[cy]||[]).filter(h=>h.date.startsWith(`${cy}-${pad2(cm)}`));
 }
+function isHolidayDate(dstr){ return pubHols.some(h=>h.date===dstr); }
 
 // ══════════════════════════════════════════
 //  INIT
@@ -228,7 +229,7 @@ function renderTable(){
   let h='<thead><tr><th class="th-name">姓名</th>';
   for(let d=1;d<=days;d++){
     const dstr=ds(cy,cm,d); const dw=dow(cy,cm,d);
-    const isHol=pubHols.some(h=>h.date===dstr);
+    const isHol=isHolidayDate(dstr);
     const isClosed=closedDays.has(d);
     let cl='th-day';
     if(isClosed) cl+=' closed-day';
@@ -604,6 +605,14 @@ function consecWorkStreak(e,year,month,day){
   return before+1+after;
 }
 
+function countBeiDays(y,m,wdFrom,wdTo,schOf){
+  let n=0;
+  for(let wd=wdFrom;wd<=wdTo;wd++){
+    const wdstr=ds(y,m,wd);
+    for(const e2 of emps){ if(((schOf(e2)||{})[wdstr]||'').startsWith('備')) n++; }
+  }
+  return n;
+}
 function assignDayShifts(workers, esch, d){
   const dstr=ds(cy,cm,d);
   const done=new Set();
@@ -612,21 +621,14 @@ function assignDayShifts(workers, esch, d){
   const hasSk=activeHasSk;
 
   const dw=dow(cy,cm,d);
-  const isHoliday=pubHols.some(h=>h.date===dstr);
+  const isHoliday=isHolidayDate(dstr);
   // 一周最多一個備班
   const daysSinceMon=(dw+6)%7;
   const weekStart=d-daysSinceMon;
-  let weekBeiCount=0;
-  for(let wd=Math.max(1,weekStart);wd<d;wd++){
-    const wdstr=ds(cy,cm,wd);
-    for(const e2 of emps){if(((esch[e2]||{})[wdstr]||'').startsWith('備'))weekBeiCount++;}
-  }
+  let weekBeiCount=countBeiDays(cy,cm,Math.max(1,weekStart),d-1,e2=>esch[e2]);
   if(weekStart<1){
     const py=cm===1?cy-1:cy,pm=cm===1?12:cm-1,pk=mkey(py,pm),pd=daysIn(py,pm);
-    for(let wd=pd+weekStart;wd<=pd;wd++){
-      const wdstr=ds(py,pm,wd);
-      for(const e2 of emps){if((((data[pk]||{}).schedule||{})[e2]?.[wdstr]||'').startsWith('備'))weekBeiCount++;}
-    }
+    weekBeiCount+=countBeiDays(py,pm,pd+weekStart,pd,e2=>(data[pk]||{}).schedule?.[e2]);
   }
   const useBei=workers.length>=5 && dw!==5 && dw!==6 && !isHoliday && weekBeiCount===0;
 
@@ -636,34 +638,22 @@ function assignDayShifts(workers, esch, d){
     const bp=(empSkills[b]||[])[0]==='吧'?0:1;
     return ap-bp;
   });
-  // 廚房
+  // 廚房：1 人即可
   for(const e of emps){ if(avail(e)&&hasSk(e,'廚')){ set(e,'廚'); break; } }
-  // 吧台第1人
-  for(const e of barSorted){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
-  // PT 外場
-  let floorN=0;
-  emps.filter(e=>workers.includes(e)&&hasSk(e,'20-2')).forEach(e=>{ if(avail(e)){set(e,'20-2');floorN++;} });
-  emps.filter(e=>workers.includes(e)&&hasSk(e,'21-2')).forEach(e=>{ if(avail(e)){set(e,'21-2');floorN++;} });
-  // 外場（備班不補位）
-  for(const e of emps){
-    if(floorN>=2) break;
-    if(avail(e)&&hasSk(e,'外')){ set(e,'外'); floorN++; }
-  }
-  // 吧台第2人（外場>=2後才排）
-  if(floorN>=2){
-    for(const e of barSorted){ if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); break; } }
+  // 吧台：假日／國定假日 2 人，平日 1 人
+  const isWeekend=dw===0||dw===6;
+  const barNeeded=(isWeekend||isHoliday)?2:1;
+  let barN=0;
+  for(const e of barSorted){
+    if(barN>=barNeeded) break;
+    if(avail(e)&&hasSk(e,'吧')){ set(e,'吧'); barN++; }
   }
   // 備班（5人以上，每天最多一人）
   if(useBei){
     for(const e of emps){ if(avail(e)&&hasSk(e,'備')){ set(e,'備'); break; } }
   }
-  // 剩餘人員填入第一個技能
-  workers.forEach(e=>{
-    const sk=(empSkills[e]||[]).filter(c=>activeHasSk(e,c));
-    if(avail(e)&&sk.length&&!hasSk(e,'21-2')&&!hasSk(e,'20-2')){
-      set(e,sk[0]);
-    }
-  });
+  // 其餘都是外場
+  workers.forEach(e=>{ if(avail(e)){ set(e,'外'); } });
 }
 
 function autoSchedule(){
@@ -807,16 +797,12 @@ function renderBuiltinShiftList(){
       </li>`;
     }).join('');
 }
-function hideBuiltin(code){
-  hiddenBuiltins.add(code);
+function refreshShiftTypeUI(){
   updateSMAP(); save();
-  renderBuiltinShiftList(); renderLegend(); renderTable(); renderStats();
+  renderBuiltinShiftList(); renderCustomShiftList(); renderLegend(); renderTable(); renderStats();
 }
-function restoreBuiltin(code){
-  hiddenBuiltins.delete(code);
-  updateSMAP(); save();
-  renderBuiltinShiftList(); renderLegend(); renderTable(); renderStats();
-}
+function hideBuiltin(code){ hiddenBuiltins.add(code); refreshShiftTypeUI(); }
+function restoreBuiltin(code){ hiddenBuiltins.delete(code); refreshShiftTypeUI(); }
 function renderCustomShiftList(){
   const el=document.getElementById('customShiftList');
   if(!customShifts.length){
@@ -844,12 +830,7 @@ function addCustomShift(){
   if(getShifts().some(s=>s.code===code)){ alert(`班別代碼「${code}」已存在`); return; }
   const {bg,fg}=randomShiftColor();
   customShifts.push({code,label,bg,fg});
-  updateSMAP();
-  save();
-  renderCustomShiftList();
-  renderLegend();
-  renderTable();
-  renderStats();
+  refreshShiftTypeUI();
   document.getElementById('csCode').value=''; clearDraft('csCode');
   document.getElementById('csLabel').value=''; clearDraft('csLabel');
 }
@@ -858,12 +839,7 @@ function removeCustomShift(i){
   const code=customShifts[i].code;
   Object.keys(empSkills).forEach(e=>{ const idx=empSkills[e].indexOf(code); if(idx>=0) empSkills[e].splice(idx,1); });
   customShifts.splice(i,1);
-  updateSMAP();
-  save();
-  renderCustomShiftList();
-  renderLegend();
-  renderTable();
-  renderStats();
+  refreshShiftTypeUI();
 }
 
 // ══════════════════════════════════════════
@@ -922,11 +898,15 @@ function applyBulkLeave(){
 // ══════════════════════════════════════════
 //  CLOSE ON OUTSIDE CLICK / ESC
 // ══════════════════════════════════════════
-document.getElementById('shiftModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftModal(); });
-document.getElementById('empModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeEmpModal(); });
-document.getElementById('shiftTypeModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeShiftTypeModal(); });
-document.getElementById('staffWarnModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeStaffWarnModal(); });
-document.getElementById('bulkLeaveModal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeBulkLeaveModal(); });
+[
+  ['shiftModal',closeShiftModal],
+  ['empModal',closeEmpModal],
+  ['shiftTypeModal',closeShiftTypeModal],
+  ['staffWarnModal',closeStaffWarnModal],
+  ['bulkLeaveModal',closeBulkLeaveModal],
+].forEach(([id,fn])=>{
+  document.getElementById(id).addEventListener('click',e=>{ if(e.target===e.currentTarget) fn(); });
+});
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); closeBulkLeaveModal(); } });
 
 // ══════════════════════════════════════════
