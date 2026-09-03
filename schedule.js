@@ -36,18 +36,8 @@ const FIXED_NOTES = [
   {text:'禮拜五六為最忙碌時期盡可能全員到齊！', color:'#c62828'},
 ];
 
-const DEF_EMPS = ['Eric','Teen','Sue','Susan','Sharon','阿維','子芯'];
-
-// 人員技能（動態，可透過 UI 修改）
-const DEF_SKILLS = {
-  'Eric':   ['吧'],
-  'Teen':   ['廚'],
-  'Sue':    ['文書','外'],
-  'Susan':  ['外','備','廚'],
-  'Sharon': ['外','備'],
-  '阿維':   ['吧','備'],
-  '子芯':   ['21-2'],
-};
+let DEF_EMPS = ['Eric','Teen','Sue','Sharon','阿維','子芯']; // 動態預設名單，隨新增/刪除同步
+// 人員技能（動態，可透過 UI 修改，無預設值）
 let empSkills = {};
 function getSkillOpts(){ return getShifts().filter(s=>s.code&&!isRestShift(s.code)); } // 可選技能班別
 const EXEMPT_EMPS = new Set(['Eric','Teen','Sue']); // 不受8天限制
@@ -76,7 +66,7 @@ function ensureMonth(y,m){
   if(!data[k]) data[k]={schedule:{},notes:[],fixedDates:{},closedDays:[],restOverride:{}};
   emps.forEach(e=>{ if(!data[k].schedule[e]) data[k].schedule[e]={}; });
 }
-function save(){ localStorage.setItem('tls_data',JSON.stringify(data)); localStorage.setItem('tls_emps',JSON.stringify(emps)); localStorage.setItem('tls_skills',JSON.stringify(empSkills)); localStorage.setItem('tls_custom_shifts',JSON.stringify(customShifts)); localStorage.setItem('tls_hidden_builtins',JSON.stringify([...hiddenBuiltins])); }
+function save(){ localStorage.setItem('tls_data',JSON.stringify(data)); localStorage.setItem('tls_emps',JSON.stringify(emps)); localStorage.setItem('tls_def_emps',JSON.stringify(DEF_EMPS)); localStorage.setItem('tls_skills',JSON.stringify(empSkills)); localStorage.setItem('tls_custom_shifts',JSON.stringify(customShifts)); localStorage.setItem('tls_hidden_builtins',JSON.stringify([...hiddenBuiltins])); }
 function exportData(){
   const payload={data,emps,empSkills,customShifts,hiddenBuiltins:[...hiddenBuiltins]};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
@@ -93,7 +83,7 @@ function importData(e){
       const p=JSON.parse(ev.target.result);
       if(!p.data||!p.emps) throw new Error('格式錯誤');
       if(!confirm('確定匯入？目前資料將被覆蓋。')){ e.target.value=''; return; }
-      data=p.data; emps=p.emps; empSkills=p.empSkills||{}; customShifts=p.customShifts||[]; hiddenBuiltins=new Set(p.hiddenBuiltins||[]);
+      data=p.data; emps=p.emps; DEF_EMPS=[...emps]; empSkills=p.empSkills||{}; customShifts=p.customShifts||[]; hiddenBuiltins=new Set(p.hiddenBuiltins||[]);
       updateSMAP(); save(); renderAll();
     }catch(err){ alert('匯入失敗：'+err.message); }
     e.target.value='';
@@ -120,7 +110,10 @@ const TW_HOLIDAYS = {
     {date:'2026-04-06', localName:'清明節補假'},
     {date:'2026-05-01', localName:'勞動節'},
     {date:'2026-06-19', localName:'端午節'},
-    {date:'2026-09-25', localName:'中秋節'},
+    {date:'2026-09-25', localName:'中秋節連假'},  
+    {date:'2026-09-26', localName:'中秋節連假'},
+    {date:'2026-09-27', localName:'中秋節連假'},
+    {date:'2026-09-28', localName:'教師節'},
     {date:'2026-10-09', localName:'國慶日（彈性放假）'},
     {date:'2026-10-10', localName:'國慶日'},
   ],
@@ -152,16 +145,17 @@ function loadPubHols(){
 //  INIT
 // ══════════════════════════════════════════
 function init(){
-  const sd=localStorage.getItem('tls_data'), se=localStorage.getItem('tls_emps'), ss=localStorage.getItem('tls_skills'), sc=localStorage.getItem('tls_custom_shifts'), sh=localStorage.getItem('tls_hidden_builtins');
+  const sd=localStorage.getItem('tls_data'), se=localStorage.getItem('tls_emps'), sde=localStorage.getItem('tls_def_emps'), ss=localStorage.getItem('tls_skills'), sc=localStorage.getItem('tls_custom_shifts'), sh=localStorage.getItem('tls_hidden_builtins');
   if(sd) try{ data=JSON.parse(sd); }catch(e){}
   if(se) try{ emps=JSON.parse(se); }catch(e){}
+  if(sde) try{ DEF_EMPS=JSON.parse(sde); }catch(e){}
   if(ss) try{ empSkills=JSON.parse(ss); }catch(e){}
   if(sc) try{ customShifts=JSON.parse(sc); }catch(e){}
   if(sh) try{ hiddenBuiltins=new Set(JSON.parse(sh)); }catch(e){}
   updateSMAP();
-  if(!emps.length) emps=[...DEF_EMPS];
-  // 預設技能補齊（未曾設定過的員工）
-  emps.forEach(e=>{ if(!empSkills[e]) empSkills[e]=DEF_SKILLS[e]||[]; });
+  if(se===null) emps=[...DEF_EMPS]; // 僅在從未存過員工名單時才套用預設名單，避免刪光後被復活
+  // 技能補齊（未曾設定過的員工，無預設值）
+  emps.forEach(e=>{ if(!empSkills[e]) empSkills[e]=[]; });
 
   // Remove any fixed notes or legacy holiday notes that were previously stored
   const fixedTexts=new Set(FIXED_NOTES.map(n=>n.text));
@@ -550,11 +544,17 @@ function toggleEmpSkill(i,code){
 function addEmployee(){
   const inp=document.getElementById('newEmpInput'); const n=inp.value.trim();
   if(!n||emps.includes(n)) return;
-  emps.push(n); inp.value=''; clearDraft('newEmpInput'); ensureMonth(cy,cm); save(); renderEmpList(); renderTable(); renderStats();
+  emps.push(n);
+  if(!DEF_EMPS.includes(n)) DEF_EMPS.push(n);
+  inp.value=''; clearDraft('newEmpInput'); ensureMonth(cy,cm); save(); renderEmpList(); renderTable(); renderStats();
 }
 function removeEmp(i){
-  if(!confirm(`確定刪除員工「${emps[i]}」？`)) return;
-  emps.splice(i,1); save(); renderEmpList(); renderTable(); renderStats();
+  const name=emps[i];
+  if(!confirm(`確定刪除員工「${name}」？`)) return;
+  emps.splice(i,1);
+  const di=DEF_EMPS.indexOf(name);
+  if(di>=0) DEF_EMPS.splice(di,1);
+  save(); renderEmpList(); renderTable(); renderStats();
 }
 function moveEmp(i,d){
   const j=i+d; if(j<0||j>=emps.length) return;
