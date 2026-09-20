@@ -40,8 +40,8 @@ let DEF_EMPS = ['Eric','Teen','Sue','Sharon','阿維','子芯']; // 動態預設
 // 人員技能（動態，可透過 UI 修改，無預設值）
 let empSkills = {};
 function getSkillOpts(){ return getShifts().filter(s=>s.code&&!isRestShift(s.code)); } // 可選技能班別
-const EXEMPT_EMPS = new Set(['Eric','Teen','Sue']); // 不受8天限制
 const REST_PER_MONTH = 8;
+const REST_FLOOR = 8; // 個人應休天數過多排不下時，至少須排足的天數（其餘計入欠假）
 
 // ══════════════════════════════════════════
 //  STATE
@@ -141,6 +141,8 @@ function loadPubHols(){
   pubHols = (TW_HOLIDAYS[cy]||[]).filter(h=>h.date.startsWith(`${cy}-${pad2(cm)}`));
 }
 function isHolidayDate(dstr){ return pubHols.some(h=>h.date===dstr); }
+// 週五、週六、國定假日（最忙碌日：自動排班不排休、不排備班、不設公休）
+function isBusyDay(y,m,d){ const w=dow(y,m,d); return w===5||w===6||isHolidayDate(ds(y,m,d)); }
 
 // ══════════════════════════════════════════
 //  INIT
@@ -218,6 +220,11 @@ function extractNoteDays(notes){
   });
   return map;
 }
+// 該日實際班別：公休日的空白格視為「休」
+function effShift(md,e,y,m,d){
+  const s=((md.schedule||{})[e]||{})[ds(y,m,d)]||'';
+  return (md.closedDays||[]).includes(d)?(s||'休'):s;
+}
 function renderTable(){
   const k=mkey(); const md=data[k]||{}; const days=daysIn(cy,cm);
   const fd=md.fixedDates||{};
@@ -247,8 +254,7 @@ function renderTable(){
     h+=`<tr><td class="td-name">${e}</td>`;
     for(let d=1;d<=days;d++){
       const dstr=ds(cy,cm,d);
-      const stored=esch[dstr]||'';
-      const sh=closedDays.has(d)?(stored||'休'):stored;
+      const sh=effShift(md,e,cy,cm,d);
       // 顏色：先查完整代碼，找不到時取第一個部分的基底代碼（備16~1 → 備）
       const shBase0=sh?(sh.split('/')[0].startsWith('備')?'備':sh.split('/')[0]):'';
       const s=SMAP[sh]||(sh&&sh.includes('/')?SMAP[shBase0]:undefined)||(sh&&sh.startsWith('備')?SMAP['備']:undefined);
@@ -330,13 +336,10 @@ function renderStats(){
   const k=mkey(); const md=data[k]||{}; const codes=getShifts().filter(s=>s.code).map(s=>s.code);
   const st={};
   const days2=daysIn(cy,cm);
-  const closedDaysSt=new Set(md.closedDays||[]);
   emps.forEach(e=>{
     st[e]={}; codes.forEach(c=>{st[e][c]=0;}); st[e]._w=0;
-    const esch=(md.schedule||{})[e]||{};
     for(let d=1;d<=days2;d++){
-      const stored=esch[ds(cy,cm,d)]||'';
-      const sh=closedDaysSt.has(d)?(stored||'休'):stored;
+      const sh=effShift(md,e,cy,cm,d);
       if(sh){
         if(st[e][sh]!==undefined){ st[e][sh]++; if(!isRestShift(sh)) st[e]._w++; }
         else if(sh.includes('/')){
@@ -377,17 +380,47 @@ function setMaxClosed(val){
   data[k].maxClosedDays=isNaN(n)||n<0?0:Math.min(14,n);
   save();
 }
+// 個人本月應休天數（自動排班依此安排，至少須達到；多休不倒扣）；null = 未填且休假手動處理者（PT／未設技能）
+function getRestTarget(md,e){
+  const ov=md.restOverride||{};
+  if(e in ov) return ov[e]||0;
+  const sk=empSkills[e]||[];
+  if(sk.includes('21-2')||sk.includes('20-2')||sk.length===0) return null;
+  return REST_PER_MONTH;
+}
+// 該月實際休假天數（含公休日；公休日內填了工作班別者不算）
+function monthRestCount(k,e){
+  const md=data[k]||{}; const [y,m]=k.split('-').map(Number);
+  let n=0;
+  for(let d=1;d<=daysIn(y,m);d++) if(isRestShift(effShift(md,e,y,m,d))) n++;
+  return n;
+}
+// 欠假 = 應休天數 − 實際休假天數（僅限已自動排班的月份）；所有人員未填天數時以預設 8 天計，多休不倒扣
+function getOwedLeave(k,e){
+  const md=data[k]; if(!md||!md.autoRan) return 0;
+  const t=getRestTarget(md,e)??REST_PER_MONTH;
+  return Math.max(0,t-monthRestCount(k,e));
+}
+function getOwedTotal(e){
+  const cur=mkey();
+  return Object.keys(data).filter(k=>k<=cur).reduce((s,k)=>s+getOwedLeave(k,e),0);
+}
 function renderRestOverride(){
   const k=mkey(); const md=data[k]||{};
   const ov=md.restOverride||{};
   const inp=document.getElementById('maxClosedInput');
   if(inp) inp.value=getMaxClosed();
   document.getElementById('restOverrideList').innerHTML=
-    emps.map(e=>`<div class="ro-row">
+    emps.map(e=>{
+      const owed=getOwedLeave(k,e), total=getOwedTotal(e);
+      const owedHtml=(data[k]||{}).autoRan||total
+        ?`<span class="ro-unit" style="color:${owed||total?'#c62828':'#888'};font-weight:${owed||total?700:400}">欠假 ${owed} 天${total!==owed?`（累計 ${total} 天）`:''}</span>`:'';
+      return `<div class="ro-row">
       <span class="ro-name">${e}</span>
       <input type="number" min="0" max="31" class="ro-input" value="${e in ov?ov[e]:REST_PER_MONTH}" onchange="setRestOverride('${e}',this.value)">
-      <span class="ro-unit">天</span>
-    </div>`).join('');
+      <span class="ro-unit">天</span>${owedHtml}
+    </div>`;
+    }).join('');
 }
 function setRestOverride(e,val){
   const k=mkey(); ensureMonth(cy,cm);
@@ -395,7 +428,7 @@ function setRestOverride(e,val){
   const n=parseInt(val);
   if(val===''||isNaN(n)) delete data[k].restOverride[e];
   else data[k].restOverride[e]=Math.max(0,Math.min(31,n));
-  save();
+  save(); renderRestOverride();
 }
 
 // ══════════════════════════════════════════
@@ -454,6 +487,25 @@ function pickShift(c){
   if(!parts.includes('備')) document.getElementById('beiTimeInput').value='';
   renderPicker();
 }
+// 手動調整後同步公休標示：全員休假 → 標為公休；公休日有人填入工作班別 → 取消公休
+// （取消時，其他人原本顯示的「休」轉為實際休假）
+function syncClosedDay(k,dstr){
+  const md=data[k]; const dayNum=parseInt(dstr.split('-')[2]);
+  const cds=md.closedDays||[];
+  const isClosed=cds.includes(dayNum);
+  const shOf=e=>((md.schedule||{})[e]||{})[dstr]||'';
+  if(!isClosed){
+    if(emps.length&&emps.every(e=>isRestShift(shOf(e)))) md.closedDays=[...cds,dayNum].sort((a,b)=>a-b);
+    return;
+  }
+  if(emps.some(e=>{ const s=shOf(e); return s&&!isRestShift(s); })){
+    emps.forEach(e=>{
+      if(!md.schedule[e]) md.schedule[e]={};
+      if(!md.schedule[e][dstr]) md.schedule[e][dstr]='休';
+    });
+    md.closedDays=cds.filter(d=>d!==dayNum);
+  }
+}
 function saveShift(){
   if(!editCell) return;
   const {e,dstr}=editCell; const k=mkey(); ensureMonth(cy,cm);
@@ -464,7 +516,8 @@ function saveShift(){
     if(t) finalShift=selShift==='備'?`備${t}`:selShift.split('/').map(p=>p==='備'?`備${t}`:p).join('/');
   }
   data[k].schedule[e][dstr]=finalShift;
-  save(); renderTable(); renderStats(); closeShiftModal();
+  syncClosedDay(k,dstr);
+  save(); renderTable(); renderStats(); renderRestOverride(); closeShiftModal();
   const allV=[];
   if(selShift&&!isRestShift(selShift)){
     const [y2,m2,d2]=dstr.split('-').map(Number);
@@ -630,7 +683,7 @@ function assignDayShifts(workers, esch, d){
     const py=cm===1?cy-1:cy,pm=cm===1?12:cm-1,pk=mkey(py,pm),pd=daysIn(py,pm);
     weekBeiCount+=countBeiDays(py,pm,pd+weekStart,pd,e2=>(data[pk]||{}).schedule?.[e2]);
   }
-  const useBei=workers.length>=5 && dw!==5 && dw!==6 && !isHoliday && weekBeiCount===0;
+  const useBei=workers.length>=5 && !isBusyDay(cy,cm,d) && weekBeiCount===0;
 
   // 吧台候選：主技能為吧的人優先（如阿維），其次依 emps 順序
   const barSorted=[...emps].sort((a,b)=>{
@@ -657,13 +710,24 @@ function assignDayShifts(workers, esch, d){
 }
 
 function autoSchedule(){
-  if(!confirm(`自動排班將填入 ${cy} 年 ${cm} 月 所有空白格，已手動填寫的班別不受影響，確定繼續？`)) return;
+  if(!confirm(`自動排班將填入 ${cy} 年 ${cm} 月 所有空白格，已手動填寫的班別不受影響（上次自動排班的結果會重新排），確定繼續？`)) return;
   const k=mkey(); ensureMonth(cy,cm);
   const md=data[k]; const days=daysIn(cy,cm);
   const MAX_CLOSED=getMaxClosed();
 
   // 重置公休日（排班結束後依分布重新決定）
   data[k].closedDays=[];
+
+  // 清除上次自動排班填入的格子（仍與當時填入內容相同者），避免重跑時舊結果疊加而多休；手動填寫或改過的格子保留
+  const lastAuto=md.autoCells||{};
+  emps.forEach(e=>{
+    Object.entries(lastAuto[e]||{}).forEach(([dstr,code])=>{ if(md.schedule[e][dstr]===code) delete md.schedule[e][dstr]; });
+  });
+  const beforeAuto={};
+  emps.forEach(e=>{ beforeAuto[e]={...md.schedule[e]}; });
+
+  // 自動排休的硬性限制：週五、週六、國定假日不排休；當天其餘在班人員須 4 人以上
+  const isNoRestDay=d=>isBusyDay(cy,cm,d);
 
   // 每天確認休假名單（從已手動設定中建立）
   const offSet={};
@@ -672,64 +736,110 @@ function autoSchedule(){
     emps.forEach(e=>{ if(isRestShift(md.schedule[e][ds(cy,cm,d)])) offSet[d].add(e); });
   }
 
-  // ── Phase 1：分配休假日 ──
-  const overrides=md.restOverride||{};
-  const restQuota={};
-  // 配額扣除公休日預估數，避免統計顯示超出目標
-  emps.forEach(e=>{
-    const manualRest=Object.values(md.schedule[e]).filter(v=>isRestShift(v)).length;
-    if(e in overrides){
-      restQuota[e]=Math.max(0,(overrides[e]||0)-manualRest-MAX_CLOSED);
-    } else {
-      if(EXEMPT_EMPS.has(e)||(empSkills[e]||[]).includes('21-2')||(empSkills[e]||[]).includes('20-2')||(empSkills[e]||[]).length===0){ restQuota[e]=0; return; }
-      restQuota[e]=Math.max(0,REST_PER_MONTH-manualRest-MAX_CLOSED);
-    }
-  });
-
-  emps.forEach(e=>{
-    if(!restQuota[e]) return;
-    const candidates=[];
-    for(let d=1;d<=days;d++){
-      if(md.schedule[e][ds(cy,cm,d)]) continue;
-      candidates.push(d);
-    }
-    let assigned=0;
-    const needed=Math.min(restQuota[e], candidates.length);
-    if(!needed) return;
-    const step=candidates.length/needed;
-    // 依均勻間距選定優先候選日，失敗時繼續往後找補
-    const tried=new Set();
-    const primary=Array.from({length:needed},(_,i)=>candidates[Math.min(Math.round(i*step),candidates.length-1)]);
-    for(const d of primary){
-      if(tried.has(d)) continue;
-      tried.add(d);
-      const workers=emps.filter(w=>!offSet[d].has(w)&&w!==e);
-      if(canStaff(workers)){
-        md.schedule[e][ds(cy,cm,d)]='休';
-        offSet[d].add(e);
-        assigned++;
-      }
-    }
-    // 補足未達配額的休假日
-    if(assigned<needed){
-      for(const d of candidates){
-        if(assigned>=needed) break;
-        if(tried.has(d)||md.schedule[e][ds(cy,cm,d)]) continue;
-        const workers=emps.filter(w=>!offSet[d].has(w)&&w!==e);
-        if(canStaff(workers)){
-          md.schedule[e][ds(cy,cm,d)]='休';
-          offSet[d].add(e);
-          assigned++;
-        }
-      }
-    }
-  });
-
-  // ── Phase 1.5：防止連續工作 7 天 ──
+  // ── 公休日選取工具（預估與最終決定共用）：不可連休（含跨月）──
   const prevY=cm===1?cy-1:cy,prevM=cm===1?12:cm-1;
   const prevMd=data[mkey(prevY,prevM)]||{};
   const prevClosed=new Set((prevMd.closedDays)||[]);
   const prevDaysCount=daysIn(prevY,prevM);
+  const nextMd=data[mkey(cm===12?cy+1:cy,cm===12?1:cm+1)]||{};
+  const nextClosed1=(nextMd.closedDays||[]).includes(1);
+  const isClosedBlocked=(d,picked)=>picked.some(x=>Math.abs(x-d)<=1)||(d===1&&prevClosed.has(prevDaysCount))||(d===days&&nextClosed1);
+  const eligibleClosed=Array.from({length:days},(_,i)=>i+1).filter(d=>!isNoRestDay(d));
+  // 公休日計入個人休假天數：先以「實際可排的公休天數」預估並扣除配額，公休日確定後再補足差額
+  const closedEstimate=eligibleClosed.reduce((picked,d)=>(picked.length<MAX_CLOSED&&!isClosedBlocked(d,picked)?[...picked,d]:picked),[]).length;
+
+  // ── Phase 1：分配休假日 ──
+  const restQuota={}, restFloor={};
+  emps.forEach(e=>{
+    const manualRest=Object.values(md.schedule[e]).filter(v=>isRestShift(v)).length;
+    const target=getRestTarget(md,e);
+    if(target==null){ restQuota[e]=0; restFloor[e]=0; return; }
+    restQuota[e]=Math.max(0,target-manualRest-closedEstimate);
+    // 排不下時的保底天數：所有人員至少排足 REST_FLOOR 天（目標較低者以目標為準）
+    restFloor[e]=Math.max(0,Math.min(target,REST_FLOOR)-manualRest-closedEstimate);
+  });
+
+  // 排休採「輪流一人一天」分配，人力吃緊時不足的天數（欠假）由大家平均分擔：
+  // 每輪順序 = 前幾個月累計欠假多者優先，其次剩餘應休天數多者
+  const priorOwed={};
+  emps.forEach(e=>{ priorOwed[e]=Object.keys(data).filter(kk=>kk<k).reduce((s,kk)=>s+getOwedLeave(kk,e),0); });
+  // 自動排班人力池：當天未休、且尚未手動填入班別者。手動填入的工作班別視為額外增援，不計入平日 4 人，也不影響排休判斷
+  const autoPool=(d,except)=>emps.filter(w=>w!==except&&!offSet[d].has(w)&&!md.schedule[w][ds(cy,cm,d)]);
+  const allocateRests=(quota,floor,banned)=>{
+    const plan={};
+    emps.forEach(e=>{
+      if(!quota[e]) return;
+      const candidates=[];
+      for(let d=1;d<=days;d++){
+        if(md.schedule[e][ds(cy,cm,d)]||isNoRestDay(d)||banned.has(d)) continue;
+        candidates.push(d);
+      }
+      const needed=Math.min(quota[e], candidates.length);
+      if(!needed) return;
+      plan[e]={needed,assigned:0,candidates,dead:new Set()};
+    });
+    const roundOrder=()=>Object.keys(plan)
+      .sort((a,b)=>priorOwed[b]-priorOwed[a]||(plan[b].needed-plan[b].assigned)-(plan[a].needed-plan[a].assigned)||emps.indexOf(a)-emps.indexOf(b));
+    // 挑休假日：平日人力池最多的日子優先（讓平日趨近 4 人）；人數相同時離自己其他休假日越遠越好
+    const pickDay=(e,ok)=>{
+      const p=plan[e]; let best=0,bestSize=-1,bestDist=-1;
+      const mine=[]; for(let x=1;x<=days;x++) if(offSet[x].has(e)) mine.push(x);
+      p.candidates.forEach(d=>{
+        if(p.dead.has(d)||md.schedule[e][ds(cy,cm,d)]) return;
+        if(!ok(d)){ p.dead.add(d); return; } // 人力只會越排越少，不合格的日子之後也不會合格
+        const size=autoPool(d,null).length;
+        const dist=mine.reduce((m,x)=>Math.min(m,Math.abs(x-d)),days);
+        if(size>bestSize||(size===bestSize&&dist>bestDist)){ best=d; bestSize=size; bestDist=dist; }
+      });
+      return best;
+    };
+    const giveRest=(e,d)=>{ md.schedule[e][ds(cy,cm,d)]='休'; offSet[d].add(e); plan[e].assigned++; };
+    // 第一階段：職位搭配完整（廚、吧、外場）才排休，輪流一人一天
+    for(let progress=true;progress;){
+      progress=false;
+      roundOrder().forEach(e=>{
+        if(plan[e].assigned>=plan[e].needed) return;
+        const d=pickDay(e,x=>canStaff(autoPool(x,e)));
+        if(d){ giveRest(e,d); progress=true; }
+      });
+    }
+    // 第二階段：仍低於保底天數者，放寬職位限制（仍須留 4 人以上）輪流補足；仍不足的部分計入欠假
+    for(let progress=true;progress;){
+      progress=false;
+      roundOrder().filter(e=>plan[e].assigned<floor[e]).forEach(e=>{
+        plan[e].dead.clear();
+        const d=pickDay(e,x=>autoPool(x,e).length>=4);
+        if(d){ giveRest(e,d); progress=true; }
+      });
+    }
+  };
+  allocateRests(restQuota,restFloor,new Set());
+
+
+  // ── 確定公休日：取休假人數最多之日（上限 MAX_CLOSED 天），週五、週六、國定假日不可公休，且不可連休 ──
+  const restCountAfter={};
+  for(let d=1;d<=days;d++){
+    restCountAfter[d]=emps.filter(e=>offSet[d].has(e)).length;
+  }
+  // 休假人數相同時，挑離已選公休日最遠者，讓公休日平均散布整個月（避免集中後中間出現過長連續工作）
+  const newClosedDays=[];
+  while(newClosedDays.length<MAX_CLOSED){
+    let best=0,bestCnt=-1,bestDist=-1;
+    eligibleClosed.forEach(d=>{
+      if(isClosedBlocked(d,newClosedDays)) return;
+      const dist=newClosedDays.reduce((m,x)=>Math.min(m,Math.abs(x-d)),days);
+      if(restCountAfter[d]>bestCnt||(restCountAfter[d]===bestCnt&&dist>bestDist)){ best=d; bestCnt=restCountAfter[d]; bestDist=dist; }
+    });
+    if(!best) break;
+    newClosedDays.push(best);
+  }
+  newClosedDays.sort((a,b)=>a-b);
+  data[k].closedDays=newClosedDays;
+  const closedSet=new Set(newClosedDays);
+
+  const isOff=(e,d)=>offSet[d].has(e)||(closedSet.has(d)&&!md.schedule[e][ds(cy,cm,d)]);
+  // ── Phase 1.5：防止連續工作 7 天（公休日確定後再檢查，公休日視為休息，避免多補休）──
+  const streakViolations=[];
   emps.forEach(e=>{
     let initStreak=0;
     for(let pd=prevDaysCount;pd>=1;pd--){
@@ -739,28 +849,41 @@ function autoSchedule(){
     }
     let streak=initStreak;
     for(let d=1;d<=days;d++){
-      if(offSet[d].has(e)){streak=0;continue;}
+      if(isOff(e,d)){streak=0;continue;}
       streak++;
-      if(streak===7){
-        const dstr2=ds(cy,cm,d);
-        if(!md.schedule[e][dstr2]){
-          md.schedule[e][dstr2]='休';offSet[d].add(e);streak=0;
+      if(streak<7) continue;
+      // 連續第 7 天：由當天往前回溯找空白格補休（不排週五六與國定假日、須留 4 人以上；優先職位搭配也滿足，找不到再放寬職位）
+      let placed=0;
+      for(const strict of [true,false]){
+        for(let x=d;x>=d-6&&x>=1;x--){
+          if(md.schedule[e][ds(cy,cm,x)]||isNoRestDay(x)) continue;
+          const rest=autoPool(x,e);
+          if(strict?!canStaff(rest):rest.length<4) continue;
+          placed=x; break;
         }
+        if(placed) break;
+      }
+      if(placed){
+        md.schedule[e][ds(cy,cm,placed)]='休'; offSet[placed].add(e);
+        streak=d-placed;
+      } else {
+        streakViolations.push(`${e} ${cm}/${d}`);
+        streak=0;
       }
     }
   });
 
-  // ── 確定公休日：取休假人數最多之日（上限 MAX_CLOSED 天）──
-  const restCountAfter={};
-  for(let d=1;d<=days;d++){
-    restCountAfter[d]=emps.filter(e=>offSet[d].has(e)).length;
-  }
-  const newClosedDays=Array.from({length:days},(_,i)=>i+1)
-    .sort((a,b)=>restCountAfter[b]-restCountAfter[a])
-    .slice(0,MAX_CLOSED)
-    .sort((a,b)=>a-b);
-  data[k].closedDays=newClosedDays;
-  const closedSet=new Set(newClosedDays);
+  // 公休日計入個人休假天數：公休日確定後，實際休假（含公休日）仍不足應休天數者，於其他日補排
+  const topQuota={}, topFloor={};
+  emps.forEach(e=>{
+    const target=getRestTarget(md,e);
+    if(target==null){ topQuota[e]=0; topFloor[e]=0; return; }
+    const have=monthRestCount(k,e);
+    topQuota[e]=Math.max(0,target-have);
+    topFloor[e]=Math.max(0,Math.min(target,REST_FLOOR)-have);
+  });
+  allocateRests(topQuota,topFloor,closedSet);
+
 
   // ── Phase 2：填入班別 ──
   for(let d=1;d<=days;d++){
@@ -771,7 +894,19 @@ function autoSchedule(){
     assignDayShifts(workers, eSchMap, d);
   }
 
+  data[k].autoRan=true;
+  data[k].autoCells={};
+  emps.forEach(e=>{
+    Object.entries(md.schedule[e]).forEach(([dstr,code])=>{
+      if(code&&!beforeAuto[e][dstr]) (data[k].autoCells[e]=data[k].autoCells[e]||{})[dstr]=code;
+    });
+  });
   save(); renderAll();
+  const msgs=[];
+  const owedList=emps.map(e=>[e,getOwedLeave(k,e)]).filter(([,n])=>n>0);
+  if(owedList.length) msgs.push('以下人員應休天數排不下，不足天數計入欠假：\n'+owedList.map(([e,n])=>`${e} 欠 ${n} 天（累計 ${getOwedTotal(e)} 天）`).join('\n'));
+  if(streakViolations.length) msgs.push('以下日期無法避免連續工作 7 天（該段沒有可補休的日子：週五六、國定假日不排休，其餘已手動填寫或補休會使當天不足 4 人），請手動調整：\n'+streakViolations.join('\n'));
+  if(msgs.length) alert(msgs.join('\n\n'));
 }
 
 // ══════════════════════════════════════════
@@ -889,6 +1024,7 @@ function applyBulkLeave(){
       if(!md.schedule[emp]) md.schedule[emp]={};
       if(!md.schedule[emp][dstr]||overwrite){ md.schedule[emp][dstr]='休'; count++; }
     });
+    syncClosedDay(k,dstr);
   });
   save(); renderAll();
   alert(`已標記 ${count} 筆請假`);

@@ -49,7 +49,7 @@
   <!-- REST OVERRIDE PANEL -->
   <div class="panel ro-panel">
     <div class="ptitle">📅 本月應休天數</div>
-    <div class="ro-hint">未填入則採預設 8 天；有填數字才強制執行（僅影響自動排班）</div>
+    <div class="ro-hint">自動排班依此天數安排（未填預設 8 天，所有人員一致，可多不可少）。排不下時至少排足 8 天，不足計入欠假；未設技能或 PT 者不自動排休，但休不足仍計欠假</div>
     <div class="ro-row" style="border-bottom:1px solid #eee;margin-bottom:6px;padding-bottom:8px">
       <span class="ro-name" style="font-weight:700">本月公休天數</span>
       <input type="number" min="0" max="14" class="ro-input" id="maxClosedInput" value="4" onchange="setMaxClosed(this.value)">
