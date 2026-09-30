@@ -91,6 +91,8 @@ function importData(e){
   reader.readAsText(file);
 }
 function hexAlpha(hex,a){ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 
 // ══════════════════════════════════════════
 //  PUBLIC HOLIDAYS (Taiwan built-in data)
@@ -225,16 +227,24 @@ function effShift(md,e,y,m,d){
   const s=((md.schedule||{})[e]||{})[ds(y,m,d)]||'';
   return (md.closedDays||[]).includes(d)?(s||'休'):s;
 }
-function renderTable(){
-  const k=mkey(); const md=data[k]||{}; const days=daysIn(cy,cm);
-  const fd=md.fixedDates||{};
-  const closedDays=new Set(md.closedDays||[]);
-  const DATED_KEYS=FIXED_NOTES.filter(n=>n.dateKey).map(n=>({key:n.dateKey,color:n.color}));
-  const colBorder={};
-  Object.assign(colBorder, extractNoteDays(md.notes||[]));
-  DATED_KEYS.forEach(({key,color})=>{ if(fd[key]) colBorder[parseInt(fd[key])]=color; });
+function daySpans(days,chunkSize){
+  const out=[];
+  for(let s=1;s<=days;s+=chunkSize) out.push([s,Math.min(s+chunkSize-1,days)]);
+  // 避免最後一組天數過少（例如 31 天會剩下孤零零的 1 天），改併入前一組
+  if(out.length>1){
+    const last=out[out.length-1];
+    const lastLen=last[1]-last[0]+1;
+    if(lastLen<chunkSize/2){
+      out[out.length-2][1]=last[1];
+      out.pop();
+    }
+  }
+  return out;
+}
+
+function buildTableRows(md,colBorder,closedDays,startDay,endDay){
   let h='<thead><tr><th class="th-name">姓名</th>';
-  for(let d=1;d<=days;d++){
+  for(let d=startDay;d<=endDay;d++){
     const dstr=ds(cy,cm,d); const dw=dow(cy,cm,d);
     const isHol=isHolidayDate(dstr);
     const isClosed=closedDays.has(d);
@@ -250,9 +260,8 @@ function renderTable(){
   }
   h+='</tr></thead><tbody>';
   emps.forEach(e=>{
-    const esch=((md.schedule||{})[e]||{});
     h+=`<tr><td class="td-name">${e}</td>`;
-    for(let d=1;d<=days;d++){
+    for(let d=startDay;d<=endDay;d++){
       const dstr=ds(cy,cm,d);
       const sh=effShift(md,e,cy,cm,d);
       // 顏色：先查完整代碼，找不到時取第一個部分的基底代碼（備16~1 → 備）
@@ -284,7 +293,7 @@ function renderTable(){
   };
   // Daily unfilled count row (hidden on print)
   h+='<tr class="day-count-row"><td class="td-name day-count-label">未填入</td>';
-  for(let d=1;d<=days;d++){
+  for(let d=startDay;d<=endDay;d++){
     const dstr=ds(cy,cm,d);
     const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
     h+=dayCountCell(d,empty,empty>0?'color:#c0392b;':'color:#27ae60;');
@@ -292,14 +301,34 @@ function renderTable(){
   h+='</tr>';
   // Daily operating count row (hidden on print)
   h+='<tr class="day-count-row"><td class="td-name day-count-label">營業人數</td>';
-  for(let d=1;d<=days;d++){
+  for(let d=startDay;d<=endDay;d++){
     const dstr=ds(cy,cm,d);
     const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
     h+=dayCountCell(d,op,'color:#1565c0;font-weight:700;');
   }
   h+='</tr>';
   h+='</tbody>';
-  document.getElementById('schTable').innerHTML=h;
+  return h;
+}
+
+function renderTable(){
+  const k=mkey(); const md=data[k]||{}; const days=daysIn(cy,cm);
+  const fd=md.fixedDates||{};
+  const closedDays=new Set(md.closedDays||[]);
+  const DATED_KEYS=FIXED_NOTES.filter(n=>n.dateKey).map(n=>({key:n.dateKey,color:n.color}));
+  const colBorder={};
+  Object.assign(colBorder, extractNoteDays(md.notes||[]));
+  DATED_KEYS.forEach(({key,color})=>{ if(fd[key]) colBorder[parseInt(fd[key])]=color; });
+
+  document.getElementById('schTable').innerHTML=buildTableRows(md,colBorder,closedDays,1,days);
+
+  // 列印版：每 15 天切一組，每組各自獨立成一頁，避免被切成兩頁
+  const printEl=document.getElementById('schTablePrint');
+  if(printEl){
+    printEl.innerHTML=daySpans(days,15).map(([s,e])=>
+      `<div class="print-page-block"><table class="sch-table">${buildTableRows(md,colBorder,closedDays,s,e)}</table></div>`
+    ).join('');
+  }
 }
 
 function renderNotes(){
@@ -461,7 +490,7 @@ function openShiftModal(e,dstr){
   const [y,mo,d]=dstr.split('-');
   document.getElementById('shiftModalTitle').textContent=`${e} — ${+mo}/${+d} (${WDS[dow(+y,+mo,+d)]})`;
   renderPicker();
-  document.getElementById('shiftModal').classList.add('open');
+  openModal('shiftModal');
 }
 function renderPicker(){
   const skills=new Set(empSkills[editCell.e]||[]);
@@ -557,18 +586,18 @@ function showStaffWarn(violations,dstr){
   const [y,mo,d]=dstr.split('-').map(Number);
   document.getElementById('staffWarnDate').textContent=`${y} 年 ${mo} 月 ${d} 日`;
   document.getElementById('staffWarnList').innerHTML=violations.map(v=>`<li>${v}</li>`).join('');
-  document.getElementById('staffWarnModal').classList.add('open');
+  openModal('staffWarnModal');
 }
-function closeStaffWarnModal(){ document.getElementById('staffWarnModal').classList.remove('open'); }
+function closeStaffWarnModal(){ closeModal('staffWarnModal'); }
 function closeShiftModal(){
-  document.getElementById('shiftModal').classList.remove('open');
+  closeModal('shiftModal');
   editCell=null; selShift=null;
 }
 
 // ══════════════════════════════════════════
 //  EMPLOYEE MODAL
 // ══════════════════════════════════════════
-function openEmpModal(){ renderEmpList(); document.getElementById('empModal').classList.add('open'); }
+function openEmpModal(){ renderEmpList(); openModal('empModal'); }
 function renderEmpList(){
   document.getElementById('empList').innerHTML=
     emps.map((e,i)=>{
@@ -614,7 +643,7 @@ function moveEmp(i,d){
   const j=i+d; if(j<0||j>=emps.length) return;
   [emps[i],emps[j]]=[emps[j],emps[i]]; save(); renderEmpList(); renderTable();
 }
-function closeEmpModal(){ document.getElementById('empModal').classList.remove('open'); }
+function closeEmpModal(){ closeModal('empModal'); }
 
 // ══════════════════════════════════════════
 //  MONTH NAV
@@ -915,9 +944,9 @@ function autoSchedule(){
 function openShiftTypeModal(){
   renderBuiltinShiftList();
   renderCustomShiftList();
-  document.getElementById('shiftTypeModal').classList.add('open');
+  openModal('shiftTypeModal');
 }
-function closeShiftTypeModal(){ document.getElementById('shiftTypeModal').classList.remove('open'); }
+function closeShiftTypeModal(){ closeModal('shiftTypeModal'); }
 
 function renderBuiltinShiftList(){
   document.getElementById('builtinShiftList').innerHTML =
@@ -988,9 +1017,9 @@ function openBulkLeaveModal(){
   sel.innerHTML='<option value="__all__">— 全部員工 —</option>'+emps.map(e=>`<option value="${e}">${e}</option>`).join('');
   document.getElementById('blOverwrite').checked=false;
   renderBlCalGrid();
-  document.getElementById('bulkLeaveModal').classList.add('open');
+  openModal('bulkLeaveModal');
 }
-function closeBulkLeaveModal(){ document.getElementById('bulkLeaveModal').classList.remove('open'); }
+function closeBulkLeaveModal(){ closeModal('bulkLeaveModal'); }
 
 function renderBlCalGrid(){
   const days=daysIn(cy,cm); const firstDow=dow(cy,cm,1);
@@ -1044,6 +1073,43 @@ function applyBulkLeave(){
   document.getElementById(id).addEventListener('click',e=>{ if(e.target===e.currentTarget) fn(); });
 });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); closeBulkLeaveModal(); } });
+
+// ══════════════════════════════════════════
+//  PRINT：不管內容多高，列印前用 JS 量測後整體縮放，強制塞進同一頁
+//  （CSS 的 break-inside/page-break 只能避免切斷，沒辦法保證塞得下；
+//   這裡改用「量高度→算縮放比例→transform:scale()」的方式硬擠進一頁）
+// ══════════════════════════════════════════
+function fitPrintToOnePage(){
+  const outer=document.getElementById('printFitOuter');
+  const inner=document.getElementById('printFitInner');
+  if(!outer||!inner) return;
+  inner.style.transform='none';
+  inner.style.width='';
+  outer.style.height='';
+  const mmToPx=96/25.4;
+  const pageW=(297-16)*mmToPx; // @page A4 landscape，扣掉左右各 8mm margin
+  const pageH=(210-16)*mmToPx; // 扣掉上下各 8mm margin
+  const contentW=inner.scrollWidth;
+  const contentH=inner.scrollHeight;
+  if(!contentW||!contentH) return;
+  const scale=Math.min(1, pageW/contentW, pageH/contentH);
+  if(scale<1){
+    inner.style.transformOrigin='top left';
+    inner.style.transform=`scale(${scale})`;
+    inner.style.width=(100/scale)+'%';
+    outer.style.height=(contentH*scale)+'px';
+  }
+}
+function resetPrintFit(){
+  const outer=document.getElementById('printFitOuter');
+  const inner=document.getElementById('printFitInner');
+  if(!outer||!inner) return;
+  inner.style.transform='';
+  inner.style.width='';
+  outer.style.height='';
+}
+window.addEventListener('beforeprint', fitPrintToOnePage);
+window.addEventListener('afterprint', resetPrintFit);
 
 // ══════════════════════════════════════════
 //  DRAFT & AUTO-SAVE

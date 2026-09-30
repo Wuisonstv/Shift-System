@@ -38,6 +38,7 @@ body { font-family: 'Microsoft JhengHei','Noto Sans TC','微軟正黑體',sans-s
 
 /* ── Schedule ── */
 .sch-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,.1); margin-bottom: 14px; }
+.sch-wrap-print { display: none; }
 .sch-table { border-collapse: separate; border-spacing: 0; background: #fff; width: 100%; min-width: max-content; }
 .th-name { background: var(--primary); color: #fff; padding: 8px 14px; font-size: .83rem; font-weight: 600; text-align: left; position: -webkit-sticky; position: sticky; left: 0; z-index: 10; min-width: 64px; }
 .th-day { min-width: 42px; padding: 4px 2px; text-align: center; border-left: 1px solid var(--border); font-size: .73rem; cursor: pointer; }
@@ -163,11 +164,12 @@ tr:last-child .sc { border-bottom: 1px solid var(--border); }
 
 /* Print */
 @media print {
-  .app-header .hbtns, .tbr, .legend, .ov, .ro-panel { display: none !important; }
-  /* 統計表格隱藏，只保留注意事項 */
-  .bot { display: block !important; margin-top: 10px; }
+  /* 標題列（含「排班系統」標題）整個不印出 */
+  .app-header, .tbr, .legend, .ov, .ro-panel { display: none !important; }
+  /* 統計表格隱藏，只保留注意事項，並與排班表維持在同一頁 */
+  .bot { display: block !important; margin-top: 6px; break-inside: avoid; page-break-inside: avoid; }
   .bot .panel:last-child { display: none !important; }
-  .bot .panel:first-child { box-shadow: none; border: 1px solid #ccc; padding: 8px 12px; break-inside: avoid; }
+  .bot .panel:first-child { box-shadow: none; border: 1px solid #ccc; padding: 6px 10px; break-inside: avoid; page-break-inside: avoid; }
   .ptitle { font-size: .85rem; font-weight: 700; margin-bottom: 6px; }
   .nl { font-size: .78rem; }
   /* 注意事項輸入框（日期）印出時顯示為純文字 */
@@ -175,10 +177,19 @@ tr:last-child .sc { border-bottom: 1px solid var(--border); }
   /* 注意事項刪除按鈕、新增列不印出 */
   .nd, .note-row { display: none !important; }
   .day-count-row { display: none !important; }
-  .app-header, .sc, .td-name, .th-name { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .sch-wrap { box-shadow: none; overflow: visible; }
+  .sc, .td-name, .th-name { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   body { background: #fff; }
   .main { padding: 6px; }
+  /* 螢幕版整月表格隱藏，改印每 15 天一組、由上往下排列在同一頁的版本 */
+  .sch-wrap { display: none !important; }
+  .sch-wrap-print { display: block !important; }
+  .sch-wrap-print .th-name, .sch-wrap-print .td-name { position: static !important; }
+  /* 每組 15 天不被從中間切到下一頁，但所有組別維持印在同一頁 */
+  .print-page-block { break-inside: avoid; page-break-inside: avoid; margin-bottom: 4px; }
+  .print-page-block:last-child { margin-bottom: 0; }
+  /* 列印前由 JS 量測整體高度並動態縮放（見 schedule.js fitPrintToOnePage），
+     是否需要縮小、縮多少完全交給 JS 判斷，這裡不再手動預縮字體，避免雙重縮放 */
+  .print-fit-outer { overflow: hidden; }
   @page { size: A4 landscape; margin: 8mm; }
 }
 @media(max-width:600px){ .main { padding: 8px; } .toolbar,.app-header { padding: 8px 12px; } }
