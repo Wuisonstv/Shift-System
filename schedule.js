@@ -60,6 +60,10 @@ const daysIn = (y,m) => new Date(y,m,0).getDate();
 const dow    = (y,m,d) => new Date(y,m-1,d).getDay();
 const pad2   = n => String(n).padStart(2,'0');
 const ds     = (y,m,d) => `${y}-${pad2(m)}-${pad2(d)}`;
+// 某人某日的班別代碼（缺資料時回傳空字串）
+const getCell = (md,e,dstr) => ((md.schedule||{})[e]||{})[dstr]||'';
+// 班別基底代碼：備班附時段（備16~1）歸為「備」
+const baseCode = c => c.startsWith('備')?'備':c;
 
 function ensureMonth(y,m){
   const k=mkey(y,m);
@@ -95,52 +99,34 @@ function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 
 // ══════════════════════════════════════════
-//  PUBLIC HOLIDAYS (Taiwan built-in data)
+//  PUBLIC HOLIDAYS (Taiwan calendar API)
 // ══════════════════════════════════════════
-// 台灣國定假日（含行政院公告之彈性放假）
-const TW_HOLIDAYS = {
-  2026: [
-    {date:'2026-01-01', localName:'元旦'},
-    {date:'2026-02-16', localName:'農曆除夕（彈性放假）'},
-    {date:'2026-02-17', localName:'春節'},
-    {date:'2026-02-18', localName:'春節'},
-    {date:'2026-02-19', localName:'春節'},
-    {date:'2026-02-20', localName:'春節'},
-    {date:'2026-02-28', localName:'和平紀念日'},
-    {date:'2026-04-03', localName:'兒童節'},
-    {date:'2026-04-04', localName:'清明節'},
-    {date:'2026-04-06', localName:'清明節補假'},
-    {date:'2026-05-01', localName:'勞動節'},
-    {date:'2026-06-19', localName:'端午節'},
-    {date:'2026-09-25', localName:'中秋節連假'},  
-    {date:'2026-09-26', localName:'中秋節連假'},
-    {date:'2026-09-27', localName:'中秋節連假'},
-    {date:'2026-09-28', localName:'教師節'},
-    {date:'2026-10-09', localName:'國慶日（彈性放假）'},
-    {date:'2026-10-10', localName:'國慶日'},
-  ],
-  2027: [
-    {date:'2027-01-01', localName:'元旦'},
-    {date:'2027-02-05', localName:'農曆除夕'},
-    {date:'2027-02-06', localName:'春節'},
-    {date:'2027-02-07', localName:'春節'},
-    {date:'2027-02-08', localName:'春節'},
-    {date:'2027-02-09', localName:'春節'},
-    {date:'2027-02-10', localName:'春節'},
-    {date:'2027-03-01', localName:'和平紀念日補假'},
-    {date:'2027-02-28', localName:'和平紀念日'},
-    {date:'2027-04-04', localName:'兒童節'},
-    {date:'2027-04-05', localName:'清明節'},
-    {date:'2027-05-01', localName:'勞動節'},
-    {date:'2027-06-09', localName:'端午節'},
-    {date:'2027-09-29', localName:'中秋節'},
-    {date:'2027-10-10', localName:'國慶日'},
-    {date:'2027-10-11', localName:'國慶日補假'},
-  ],
-};
+// 台灣國定假日（含補假、彈性放假）由 API 取得：isHoliday 且有 caption 者為國定假日（單純週末無 caption）
+const HOLIDAY_API='https://api.pin-yi.me/taiwan-calendar';
+const holCache={};   // year -> Promise<[{date, localName}]>
+const escHtml=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+function fetchYearHols(y){
+  if(!holCache[y]){
+    holCache[y]=fetch(`${HOLIDAY_API}/${y}/`)
+      .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+      // 外部資料：驗證日期格式並跳脫名稱，避免被插入 HTML/腳本
+      .then(list=>(Array.isArray(list)?list:[])
+        .filter(d=>d&&d.isHoliday===true&&typeof d.caption==='string'&&d.caption&&/^\d{8}$/.test(d.date))
+        .map(d=>({date:`${d.date.slice(0,4)}-${d.date.slice(4,6)}-${d.date.slice(6,8)}`, localName:escHtml(d.caption)})))
+      .catch(err=>{ delete holCache[y]; console.warn('國定假日載入失敗',err); return []; });
+  }
+  return holCache[y];
+}
+// 先以空清單渲染，API 回應後若仍在同一個月份則重新渲染
 function loadPubHols(){
-  pubHols = (TW_HOLIDAYS[cy]||[]).filter(h=>h.date.startsWith(`${cy}-${pad2(cm)}`));
+  const y=cy, m=cm;
+  pubHols=[];
+  fetchYearHols(y).then(list=>{
+    if(cy!==y||cm!==m) return;
+    pubHols=list.filter(h=>h.date.startsWith(`${y}-${pad2(m)}`));
+    if(pubHols.length) renderAll();
+  });
 }
 function isHolidayDate(dstr){ return pubHols.some(h=>h.date===dstr); }
 // 週五、週六、國定假日（最忙碌日：自動排班不排休、不排備班、不設公休）
@@ -224,7 +210,7 @@ function extractNoteDays(notes){
 }
 // 該日實際班別：公休日的空白格視為「休」
 function effShift(md,e,y,m,d){
-  const s=((md.schedule||{})[e]||{})[ds(y,m,d)]||'';
+  const s=getCell(md,e,ds(y,m,d));
   return (md.closedDays||[]).includes(d)?(s||'休'):s;
 }
 function daySpans(days,chunkSize){
@@ -265,8 +251,7 @@ function buildTableRows(md,colBorder,closedDays,startDay,endDay){
       const dstr=ds(cy,cm,d);
       const sh=effShift(md,e,cy,cm,d);
       // 顏色：先查完整代碼，找不到時取第一個部分的基底代碼（備16~1 → 備）
-      const shBase0=sh?(sh.split('/')[0].startsWith('備')?'備':sh.split('/')[0]):'';
-      const s=SMAP[sh]||(sh&&sh.includes('/')?SMAP[shBase0]:undefined)||(sh&&sh.startsWith('備')?SMAP['備']:undefined);
+      const s=SMAP[sh]||(sh?SMAP[baseCode(sh.split('/')[0])]:undefined);
       const fg=s?s.fg:(sh?'#555':'#bbb'); const bc=colBorder[d];
       const hasBg=s&&SMAP[sh]&&(isRestShift(sh)||customShifts.some(cs=>cs.code===sh));
       const bgStyle=hasBg?`background:${s.bg};`:bc?`background:${hexAlpha(bc,.13)};`:'';
@@ -295,7 +280,7 @@ function buildTableRows(md,colBorder,closedDays,startDay,endDay){
   h+='<tr class="day-count-row"><td class="td-name day-count-label">未填入</td>';
   for(let d=startDay;d<=endDay;d++){
     const dstr=ds(cy,cm,d);
-    const empty=emps.filter(e=>!((md.schedule||{})[e]||{})[dstr]).length;
+    const empty=emps.filter(e=>!getCell(md,e,dstr)).length;
     h+=dayCountCell(d,empty,empty>0?'color:#c0392b;':'color:#27ae60;');
   }
   h+='</tr>';
@@ -303,7 +288,7 @@ function buildTableRows(md,colBorder,closedDays,startDay,endDay){
   h+='<tr class="day-count-row"><td class="td-name day-count-label">營業人數</td>';
   for(let d=startDay;d<=endDay;d++){
     const dstr=ds(cy,cm,d);
-    const op=emps.filter(e=>{ const sh=((md.schedule||{})[e]||{})[dstr]||''; return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
+    const op=emps.filter(e=>{ const sh=getCell(md,e,dstr); return sh&&!isRestShift(sh)&&!sh.startsWith('備')&&sh!=='文書'; }).length;
     h+=dayCountCell(d,op,'color:#1565c0;font-weight:700;');
   }
   h+='</tr>';
@@ -376,7 +361,7 @@ function renderStats(){
           const parts=sh.split('/');
           let counted=false;
           parts.forEach(p=>{
-            const base=p.startsWith('備')?'備':p;
+            const base=baseCode(p);
             if(st[e][base]!==undefined){ st[e][base]++; counted=true; }
           });
           if(counted&&!isRestShift(sh)) st[e]._w++;
@@ -483,7 +468,7 @@ function delNote(i){ const k=mkey(); data[k].notes.splice(i,1); save(); renderNo
 function openShiftModal(e,dstr){
   editCell={e,dstr};
   const k=mkey();
-  const stored=(((data[k]||{}).schedule||{})[e]||{})[dstr]||'';
+  const stored=getCell(data[k]||{},e,dstr);
   // 備班時段分離：'備 14:00' → selShift='備', beiTimeInput='14:00'
   if(stored.startsWith('備')&&stored.length>1){ selShift='備'; document.getElementById('beiTimeInput').value=stored.slice(1); }
   else { selShift=stored; document.getElementById('beiTimeInput').value=''; }
@@ -522,7 +507,7 @@ function syncClosedDay(k,dstr){
   const md=data[k]; const dayNum=parseInt(dstr.split('-')[2]);
   const cds=md.closedDays||[];
   const isClosed=cds.includes(dayNum);
-  const shOf=e=>((md.schedule||{})[e]||{})[dstr]||'';
+  const shOf=e=>getCell(md,e,dstr);
   if(!isClosed){
     if(emps.length&&emps.every(e=>isRestShift(shOf(e)))) md.closedDays=[...cds,dayNum].sort((a,b)=>a-b);
     return;
@@ -571,9 +556,9 @@ function _checkStaffingRoles(operationalWorkers){
   return violations;
 }
 function getStaffingViolations(dstr){
-  const k=mkey(); const sch=(data[k]||{}).schedule||{};
-  const isStandby=e=>((sch[e]||{})[dstr]||'').startsWith('備');
-  const workers=emps.filter(e=>!isRestShift((sch[e]||{})[dstr]));
+  const md=data[mkey()]||{};
+  const isStandby=e=>getCell(md,e,dstr).startsWith('備');
+  const workers=emps.filter(e=>!isRestShift(getCell(md,e,dstr)));
   const operationalWorkers=workers.filter(e=>!isStandby(e));
   const violations=[];
   if(operationalWorkers.length<4){ violations.push(`營業時間人數不足 4 人（目前 ${operationalWorkers.length} 人，備班不計）`); return violations; }
@@ -677,7 +662,7 @@ function consecWorkStreak(e,year,month,day){
     const k2=mkey(y2,m2);
     const cd=new Set((data[k2]||{}).closedDays||[]);
     if(cd.has(d2)) return true;
-    const sh=((data[k2]||{}).schedule||{})[e]?.[ds(y2,m2,d2)]||'';
+    const sh=getCell(data[k2]||{},e,ds(y2,m2,d2));
     return !sh||isRestShift(sh);
   };
   let before=0,ty=year,tm=month,td=day-1;
@@ -738,7 +723,12 @@ function assignDayShifts(workers, esch, d){
   workers.forEach(e=>{ if(avail(e)){ set(e,'外'); } });
 }
 
-function autoSchedule(){
+async function autoSchedule(){
+  // 排班規則依賴國定假日，須等 API 載入完成
+  const y=cy, m=cm;
+  const hols=await fetchYearHols(y);
+  if(cy!==y||cm!==m) return;
+  pubHols=hols.filter(h=>h.date.startsWith(`${y}-${pad2(m)}`));
   if(!confirm(`自動排班將填入 ${cy} 年 ${cm} 月 所有空白格，已手動填寫的班別不受影響（上次自動排班的結果會重新排），確定繼續？`)) return;
   const k=mkey(); ensureMonth(cy,cm);
   const md=data[k]; const days=daysIn(cy,cm);
@@ -872,7 +862,7 @@ function autoSchedule(){
   emps.forEach(e=>{
     let initStreak=0;
     for(let pd=prevDaysCount;pd>=1;pd--){
-      const psh=prevClosed.has(pd)?'休':((prevMd.schedule||{})[e]?.[ds(prevY,prevM,pd)]||'');
+      const psh=prevClosed.has(pd)?'休':getCell(prevMd,e,ds(prevY,prevM,pd));
       if(!psh||isRestShift(psh)) break;
       initStreak++; if(initStreak>=6) break;
     }
@@ -1063,16 +1053,18 @@ function applyBulkLeave(){
 // ══════════════════════════════════════════
 //  CLOSE ON OUTSIDE CLICK / ESC
 // ══════════════════════════════════════════
-[
+// 新增視窗時只需加在這裡，點外側與 Esc 會一併生效
+const MODALS=[
   ['shiftModal',closeShiftModal],
   ['empModal',closeEmpModal],
   ['shiftTypeModal',closeShiftTypeModal],
   ['staffWarnModal',closeStaffWarnModal],
   ['bulkLeaveModal',closeBulkLeaveModal],
-].forEach(([id,fn])=>{
+];
+MODALS.forEach(([id,fn])=>{
   document.getElementById(id).addEventListener('click',e=>{ if(e.target===e.currentTarget) fn(); });
 });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeShiftModal(); closeEmpModal(); closeShiftTypeModal(); closeStaffWarnModal(); closeBulkLeaveModal(); } });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') MODALS.forEach(([,fn])=>fn()); });
 
 // ══════════════════════════════════════════
 //  PRINT：不管內容多高，列印前用 JS 量測後整體縮放，強制塞進同一頁
